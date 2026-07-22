@@ -66,7 +66,7 @@ function getAnalyzerVersion(): string {
   if (cachedAnalyzerVersion !== null) return cachedAnalyzerVersion;
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
-    const pkgPath = path.resolve(here, "..", "..", "..", "..", "..", "package.json");
+    const pkgPath = path.resolve(here, "..", "..", "..", "..", "package.json");
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as { version?: string };
     cachedAnalyzerVersion = pkg.version ?? "unknown";
   } catch (error) {

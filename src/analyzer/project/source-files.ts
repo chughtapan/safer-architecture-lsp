@@ -11,7 +11,10 @@ const PUBLIC_ENTRYPOINT_CANDIDATES = [
   "index.tsx",
 ] as const;
 
-export function createProgram(options: ResolvedArchitectureOptions): ts.Program | null {
+export function createProgram(
+  options: ResolvedArchitectureOptions,
+  oldProgram?: ts.Program,
+): ts.Program | null {
   const configPath =
     options.tsconfigPath ??
     ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
@@ -25,7 +28,58 @@ export function createProgram(options: ResolvedArchitectureOptions): ts.Program 
   );
   if (parsed.errors.length > 0) return null;
 
-  return ts.createProgram(parsed.fileNames, parsed.options);
+  // A tsconfig found above the workspace root may enumerate a whole
+  // monorepo; scope the ROOT file set to this workspace so each engine
+  // pays for its own folder, not the repository. Imported dependencies
+  // outside the root still load transitively.
+  const root = withTrailingSeparator(path.resolve(options.projectRoot));
+  const scoped = parsed.fileNames.filter((fileName) =>
+    path.resolve(fileName).startsWith(root),
+  );
+  const rootNames = scoped.length > 0 ? scoped : parsed.fileNames;
+
+  // Passing the previous program lets TypeScript reuse every unchanged
+  // SourceFile, turning per-save rebuilds from cold to incremental.
+  return ts.createProgram(rootNames, parsed.options, undefined, oldProgram);
+}
+
+/** Why `createProgram` would return null, in user-actionable terms. */
+export interface ProgramHealth {
+  readonly status: "ok" | "missing-tsconfig" | "invalid-tsconfig";
+  /** Path of the tsconfig involved (null when none was found). */
+  readonly configPath: string | null;
+  /** Human-readable cause; empty when status is "ok". */
+  readonly detail: string;
+}
+
+export function programHealth(options: ResolvedArchitectureOptions): ProgramHealth {
+  const configPath =
+    options.tsconfigPath ??
+    ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
+  if (!configPath) {
+    return {
+      status: "missing-tsconfig",
+      configPath: null,
+      detail: `no tsconfig.json found at or above ${options.projectRoot}; architecture analysis needs a TypeScript project`,
+    };
+  }
+  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  const parsed = ts.parseJsonConfigFileContent(
+    configFile.config,
+    ts.sys,
+    path.dirname(configPath),
+  );
+  if (parsed.errors.length > 0) {
+    const first = parsed.errors[0];
+    const text =
+      first === undefined ? "unknown parse error" : ts.flattenDiagnosticMessageText(first.messageText, "; ");
+    return {
+      status: "invalid-tsconfig",
+      configPath,
+      detail: `tsconfig at ${configPath} failed to parse: ${text}`,
+    };
+  }
+  return { status: "ok", configPath, detail: "" };
 }
 
 export function projectSourceFiles(

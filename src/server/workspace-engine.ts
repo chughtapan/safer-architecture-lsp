@@ -15,8 +15,10 @@ import {
   clearWorkspaceCache,
   getOrCreateWorkspaceCache,
 } from "../analyzer/project/cache/index.js";
+import { createProgram } from "../analyzer/project/api/index.js";
 import type {
   ArchitectureDiagnostic,
+  ArchitectureReport,
   ResolvedArchitectureOptions,
 } from "../analyzer/project/api/index.js";
 
@@ -69,6 +71,13 @@ export interface WorkspaceEngine {
   ) => Effect.Effect<readonly ArchitectureDiagnostic[], WorkspaceEngineError>;
 
   /**
+   * The whole-workspace report (diagnostics for every analyzed file plus
+   * the waiver ledger), so the server can publish for files that are not
+   * open in the editor.
+   */
+  readonly fullReport: () => Effect.Effect<ArchitectureReport, WorkspaceEngineError>;
+
+  /**
    * Stream of cache-invalidation signals. The cache is already cleared
    * by the time a value is emitted; subscribers should re-publish
    * diagnostics for their open documents.
@@ -117,7 +126,7 @@ const wireWatcherToPubSub = (
 };
 
 const buildLintPaths =
-  (options: ResolvedArchitectureOptions) =>
+  (options: ResolvedArchitectureOptions, warmProvider: () => ts.Program | null) =>
   (
     paths: readonly string[],
     programProvider?: () => ts.Program | null,
@@ -126,7 +135,7 @@ const buildLintPaths =
     Effect.try({
       try: () => {
         const cache = getOrCreateWorkspaceCache(options.projectRoot);
-        const report = cache.get(options, programProvider, programFingerprint);
+        const report = cache.get(options, programProvider ?? warmProvider, programFingerprint);
         const found: ArchitectureDiagnostic[] = [];
         for (const filePath of paths) {
           const findings = report.diagnosticsByFile.get(path.resolve(filePath));
@@ -159,9 +168,26 @@ export const makeWorkspaceEngine = (
       Effect.sync(() => clearWorkspaceCache(options.projectRoot)),
     );
     wireWatcherToPubSub(watcher, pubsub, options.projectRoot);
+    // Keep the last ts.Program so cache misses rebuild incrementally
+    // (TypeScript reuses unchanged SourceFiles) instead of cold.
+    let lastProgram: ts.Program | null = null;
+    const warmProvider = (): ts.Program | null => {
+      lastProgram = createProgram(options, lastProgram ?? undefined);
+      return lastProgram;
+    };
+    const fullReport = (): Effect.Effect<ArchitectureReport, WorkspaceEngineError> =>
+      Effect.try({
+        try: () => getOrCreateWorkspaceCache(options.projectRoot).get(options, warmProvider),
+        catch: (cause) =>
+          new WorkspaceEngineError({
+            message: `fullReport failed for ${options.projectRoot}`,
+            cause,
+          }),
+      });
     return {
       projectRoot: options.projectRoot,
       invalidations: Stream.fromPubSub(pubsub),
-      lintPaths: buildLintPaths(options),
+      lintPaths: buildLintPaths(options, warmProvider),
+      fullReport,
     };
   }).pipe(Effect.withSpan("makeWorkspaceEngine"));
