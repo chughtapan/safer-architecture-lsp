@@ -1,0 +1,48 @@
+name: publish
+
+# Publish @chughtapan/safer-architecture-lsp to npm when a vX.Y.Z tag is
+# pushed, via npm Trusted Publishing (OIDC) — no NPM_TOKEN secret. GitHub
+# Actions mints a short-lived OIDC token that npm exchanges for publish auth,
+# and provenance attestation is generated automatically.
+#
+# ONE-TIME npm-side setup (no package exists yet, so bootstrap first):
+#   1. Do the initial publish once to create the package + claim
+#      @chughtapan/safer-architecture-lsp (manual `npm publish` with a granular
+#      token, OR an `npm login` from a trusted machine).
+#   2. On npmjs.com -> the package -> Settings -> Trusted Publishers -> add a
+#      GitHub Actions publisher: org `chughtapan`, repo `safer-architecture-lsp`,
+#      workflow `publish.yml`.
+#   After that, every `vX.Y.Z` tag publishes via OIDC with zero stored secrets.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  id-token: write # required for npm OIDC trusted publishing + provenance
+
+jobs:
+  npm-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Upgrade npm (OIDC trusted publishing needs npm >= 11.5.1)
+        run: npm install -g npm@latest
+      - name: Install deps
+        run: npm install
+      - name: Build (emits dist/ that main/bin/exports point at)
+        run: npm run build
+      - name: Guard — tag must match package.json version
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag v$TAG does not match package.json version $PKG"; exit 1
+          fi
+      - name: Publish (OIDC; provenance is automatic, no NODE_AUTH_TOKEN)
+        run: npm publish

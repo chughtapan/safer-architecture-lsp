@@ -1,0 +1,54 @@
+{
+  "name": "@chughtapan/safer-architecture-lsp",
+  "version": "0.1.0",
+  "description": "Whole-project TypeScript architecture analyzer + LSP server: folder graphs, layering, public-surface and module-shape rules, with reason-carrying exception directives.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "Tapan Chugh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chughtapan/safer-architecture-lsp.git"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "safer-architecture-lsp": "./dist/server/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**",
+    "docs/**",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "prepack": "npm run clean && tsc -p tsconfig.json",
+    "test": "npm run build && vitest run",
+    "lint": "agent-code-guard-knip"
+  },
+  "dependencies": {
+    "chokidar": "^5.0.0",
+    "effect": "^3.21.1",
+    "typescript": "^5.4.0",
+    "vscode-languageserver": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint-plugin-agent-code-guard": "^0.0.14",
+    "vitest": "^3.2.6"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
