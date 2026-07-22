@@ -2,7 +2,7 @@
  * @file Convert analyzer `ArchitectureDiagnostic` values into LSP
  * `Diagnostic` values for `publishDiagnostics`. Architecture findings
  * are file-level (not line-range-bound) — they map to the start of the
- * file with `agent-code-guard` as the source and the rule id as the
+ * file with `safer-architecture` as the source and the rule id as the
  * code. Editors group findings by `code` automatically.
  */
 
@@ -35,7 +35,7 @@ function toLspDiagnostic(finding: ArchitectureDiagnostic): Diagnostic {
         : DiagnosticSeverity.Warning,
     code: finding.ruleId,
     codeDescription: ruleCodeDescription(finding.ruleId),
-    source: "agent-code-guard",
+    source: "safer-architecture",
     message: finding.message,
   };
 }

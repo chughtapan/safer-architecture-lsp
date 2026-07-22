@@ -28,6 +28,7 @@ import {
   buildDirectiveIndex,
   isDirectiveSuppressed,
   parseDirectivesFromSourceFile,
+  type DirectiveIndex,
   type FileDirectives,
 } from "./architecture-exceptions.js";
 import { ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID } from "./rule-ids.js";
@@ -35,13 +36,15 @@ import type {
   ArchitectureDiagnostic,
   ArchitectureDiagnosticRuleId,
   ArchitectureReport,
+  ArchitectureWaiver,
   ResolvedArchitectureOptions,
 } from "./project/api/index.js";
 
 interface DirectiveAnalysis {
   readonly directiveErrorDiagnostics: readonly ArchitectureDiagnostic[];
-  readonly directiveIndex: ReadonlyMap<string, ReadonlySet<ArchitectureDiagnosticRuleId>>;
+  readonly directiveIndex: DirectiveIndex;
   readonly attemptedSuppressions: ReadonlyMap<string, ReadonlySet<ArchitectureDiagnosticRuleId>>;
+  readonly waivers: readonly ArchitectureWaiver[];
 }
 
 /**
@@ -86,7 +89,11 @@ export function analyzeResolvedArchitecture(
     ...directiveAnalysis.directiveErrorDiagnostics,
     ...filterSuppressedDiagnostics(allDiagnostics, directiveAnalysis),
   ];
-  return { diagnostics, diagnosticsByFile: indexByFile(diagnostics) };
+  return {
+    diagnostics,
+    diagnosticsByFile: indexByFile(diagnostics),
+    waivers: directiveAnalysis.waivers,
+  };
 }
 
 function indexByFile(
@@ -133,6 +140,9 @@ function analyzeDirectiveComments(
     attemptedSuppressions,
     directiveErrorDiagnostics,
     directiveIndex: buildDirectiveIndex(fileDirectives),
+    waivers: fileDirectives.flatMap(({ file, directives }) =>
+      directives.map((d) => ({ file, ruleId: d.ruleId, reason: d.reason })),
+    ),
   };
 }
 

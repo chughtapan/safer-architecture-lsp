@@ -28,6 +28,16 @@ export interface ArchitectureDiagnostic {
   readonly message: string;
 }
 
+/** One granted suppression: a rule waived for a file, with its written reason. */
+export interface ArchitectureWaiver {
+  /** Absolute path of the file carrying the directive. */
+  readonly file: string;
+  /** Rule the directive suppresses. */
+  readonly ruleId: ArchitectureRuleId;
+  /** The mandatory written reason from the directive. */
+  readonly reason: string;
+}
+
 /** Result of a full architecture analysis run. */
 export interface ArchitectureReport {
   /** Deduplicated diagnostics produced by every analysis pass. */
@@ -40,6 +50,14 @@ export interface ArchitectureReport {
    * findings are absent from the map.
    */
   readonly diagnosticsByFile: ReadonlyMap<string, readonly ArchitectureDiagnostic[]>;
+
+  /**
+   * Every in-source suppression that was granted during this run, with
+   * its written reason — the auditable waiver ledger surfaced by
+   * `check --waivers`. Directives that failed to parse are diagnostics,
+   * not waivers.
+   */
+  readonly waivers: readonly ArchitectureWaiver[];
 }
 
 /** Parsed shape of the analyzer's view of `package.json`. */

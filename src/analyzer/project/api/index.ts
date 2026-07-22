@@ -26,6 +26,7 @@ export type {
   ArchitectureDiagnostic,
   ArchitectureDiagnosticRuleId,
   ArchitectureReport,
+  ArchitectureWaiver,
   ArchitectureSeverity,
   LayerDefinition,
   PackageExportEntry,

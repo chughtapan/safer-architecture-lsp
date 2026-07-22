@@ -51,7 +51,7 @@ function decodeOrThrow(raw: unknown): ArchitectureOptions {
         )
         .join("\n");
       throw new ArchitectureOptionsError({
-        message: `Invalid agent-code-guard architecture options:\n${summary}`,
+        message: `Invalid safer-architecture options:\n${summary}`,
         issues,
       });
     },

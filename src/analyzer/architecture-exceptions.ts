@@ -4,7 +4,10 @@ import {
   type ArchitectureDiagnosticRuleId,
 } from "./rule-ids.js";
 
-const DIRECTIVE_MARKER = "@agent-code-guard/architecture-exception";
+const DIRECTIVE_MARKER = "safer-arch-ignore";
+// The retired two-line marker. It is NEVER honored — seeing it produces a
+// tombstone parse error so a stale suppression can't silently stop working.
+const LEGACY_MARKER = "@agent-code-guard/architecture-exception";
 const RULE_ID_SET: ReadonlySet<string> = new Set(ARCHITECTURE_DIAGNOSTIC_RULE_IDS);
 
 interface ArchitectureDirective {
@@ -29,29 +32,12 @@ export interface DirectiveParseResult {
   readonly errors: ReadonlyArray<DirectiveParseError>;
 }
 
-const missingReasonError = (
-  filePath: string,
-  line: number,
-  ruleId: ArchitectureDiagnosticRuleId,
-): DirectiveParseError => ({
-  file: filePath,
-  line,
-  ruleId,
-  message: `Directive '${DIRECTIVE_MARKER}: ${ruleId}' is missing a 'reason:' follow-up line.`,
-});
-
 interface CommentLine {
   readonly line: number;
   readonly content: string;
 }
 
-interface PendingDirective {
-  readonly ruleId: ArchitectureDiagnosticRuleId;
-  readonly line: number;
-}
-
 interface ParseState {
-  pending: PendingDirective | null;
   readonly directives: ArchitectureDirective[];
   readonly errors: DirectiveParseError[];
 }
@@ -136,17 +122,16 @@ function blockCommentLines(
   });
 }
 
+// Grammar: `safer-arch-ignore <rule-id>: <reason>` on one comment line.
+// The reason is mandatory and non-empty; suppression is file-scoped.
+const DIRECTIVE_LINE = new RegExp(`^${DIRECTIVE_MARKER}\\s+([\\w-]+)\\s*:\\s*(.*)$`);
+
 function parseCommentLines(
   filePath: string,
   commentLines: ReadonlyArray<CommentLine>,
 ): DirectiveParseResult {
-  const state: ParseState = { directives: [], errors: [], pending: null };
-  const strictMatcher = new RegExp(
-    `^${escapeForRegExp(DIRECTIVE_MARKER)}\\s*:\\s*([\\w-]+)\\s*$`,
-  );
-
-  for (const commentLine of commentLines) handleCommentLine(state, filePath, commentLine, strictMatcher);
-  flushPendingDirective(state, filePath);
+  const state: ParseState = { directives: [], errors: [] };
+  for (const commentLine of commentLines) handleCommentLine(state, filePath, commentLine);
   return { directives: state.directives, errors: state.errors };
 }
 
@@ -154,95 +139,47 @@ function handleCommentLine(
   state: ParseState,
   filePath: string,
   commentLine: CommentLine,
-  strictMatcher: RegExp,
 ): void {
-  const candidate = strictDirectiveRuleId(commentLine.content, strictMatcher);
-  if (candidate !== null) {
-    handleDirectiveLine(state, filePath, commentLine.line, candidate);
+  const { line, content } = commentLine;
+  if (content.startsWith(LEGACY_MARKER)) {
+    state.errors.push(legacyMarkerError(filePath, line));
     return;
   }
-  if (commentLine.content.startsWith(DIRECTIVE_MARKER)) {
-    handleMalformedDirectiveLine(state, filePath, commentLine.line);
+  if (!content.startsWith(DIRECTIVE_MARKER)) return;
+  const match = content.match(DIRECTIVE_LINE);
+  if (match === null) {
+    state.errors.push(malformedError(filePath, line));
     return;
   }
-  if (state.pending !== null) handlePotentialReasonLine(state, filePath, commentLine);
-}
-
-function strictDirectiveRuleId(content: string, strictMatcher: RegExp): string | null {
-  const ruleMatch = content.match(strictMatcher);
-  return ruleMatch?.[1] ?? null;
-}
-
-function handleDirectiveLine(
-  state: ParseState,
-  filePath: string,
-  line: number,
-  candidate: string,
-): void {
-  flushPendingDirective(state, filePath);
+  const [, candidate = "", reason = ""] = match;
   if (!RULE_ID_SET.has(candidate)) {
     state.errors.push(unknownRuleError(filePath, line, candidate));
     return;
   }
-  state.pending = { line, ruleId: candidate as ArchitectureDiagnosticRuleId };
+  const ruleId = candidate as ArchitectureDiagnosticRuleId;
+  if (reason.trim().length === 0) {
+    state.errors.push(emptyReasonError(filePath, line, ruleId));
+    return;
+  }
+  state.directives.push({ ruleId, reason: reason.trim() });
 }
 
-function handleMalformedDirectiveLine(
-  state: ParseState,
-  filePath: string,
-  line: number,
-): void {
-  flushPendingDirective(state, filePath);
-  state.errors.push({
+function legacyMarkerError(filePath: string, line: number): DirectiveParseError {
+  return {
     file: filePath,
     line,
     ruleId: null,
-    message: `Malformed '${DIRECTIVE_MARKER}' directive. Expected '${DIRECTIVE_MARKER}: <rule-id>' on its own line.`,
-  });
+    message: `Legacy '${LEGACY_MARKER}' directives are not honored. Rewrite as '${DIRECTIVE_MARKER} <rule-id>: <reason>'.`,
+  };
 }
 
-function handlePotentialReasonLine(
-  state: ParseState,
-  filePath: string,
-  commentLine: CommentLine,
-): void {
-  const reason = parseReason(commentLine.content);
-  if (reason === null) {
-    flushPendingDirective(state, filePath);
-    return;
-  }
-  addReasonResult(state, filePath, commentLine.line, reason);
-}
-
-function parseReason(content: string): string | null {
-  const separator = content.indexOf(":");
-  if (separator < 0) return null;
-  const key = content.slice(0, separator).trim().toLowerCase();
-  return key === "reason" ? content.slice(separator + 1).trim() : null;
-}
-
-function addReasonResult(
-  state: ParseState,
-  filePath: string,
-  line: number,
-  reason: string,
-): void {
-  const pending = state.pending;
-  if (pending === null) return;
-  if (reason.length === 0) {
-    state.errors.push(emptyReasonError(filePath, line, pending.ruleId));
-  } else {
-    state.directives.push({ ruleId: pending.ruleId, reason });
-  }
-  state.pending = null;
-}
-
-function flushPendingDirective(state: ParseState, filePath: string): void {
-  if (state.pending === null) return;
-  state.errors.push(
-    missingReasonError(filePath, state.pending.line, state.pending.ruleId),
-  );
-  state.pending = null;
+function malformedError(filePath: string, line: number): DirectiveParseError {
+  return {
+    file: filePath,
+    line,
+    ruleId: null,
+    message: `Malformed '${DIRECTIVE_MARKER}' directive. Expected '${DIRECTIVE_MARKER} <rule-id>: <reason>' on one comment line.`,
+  };
 }
 
 function unknownRuleError(
@@ -267,33 +204,36 @@ function emptyReasonError(
     file: filePath,
     line,
     ruleId,
-    message: `Empty 'reason:' for directive '${DIRECTIVE_MARKER}: ${ruleId}'. Provide a written reason.`,
+    message: `Empty reason for directive '${DIRECTIVE_MARKER} ${ruleId}: <reason>'. The written reason is mandatory.`,
   };
 }
 
-function escapeForRegExp(literal: string): string {
-  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+export type DirectiveIndex = ReadonlyMap<
+  string,
+  ReadonlyMap<ArchitectureDiagnosticRuleId, string>
+>;
 
+// Reasons are retained per (file, rule) so the report can surface the
+// auditable waiver ledger. First directive wins on duplicates.
 export function buildDirectiveIndex(
   fileDirectives: ReadonlyArray<FileDirectives>,
-): ReadonlyMap<string, ReadonlySet<ArchitectureDiagnosticRuleId>> {
-  const index = new Map<string, Set<ArchitectureDiagnosticRuleId>>();
+): DirectiveIndex {
+  const index = new Map<string, Map<ArchitectureDiagnosticRuleId, string>>();
   for (const { file, directives } of fileDirectives) {
-    let set = index.get(file);
-    if (!set) {
-      set = new Set();
-      index.set(file, set);
+    let byRule = index.get(file);
+    if (!byRule) {
+      byRule = new Map();
+      index.set(file, byRule);
     }
     for (const d of directives) {
-      set.add(d.ruleId);
+      if (!byRule.has(d.ruleId)) byRule.set(d.ruleId, d.reason);
     }
   }
   return index;
 }
 
 export function isDirectiveSuppressed(
-  index: ReadonlyMap<string, ReadonlySet<ArchitectureDiagnosticRuleId>>,
+  index: DirectiveIndex,
   file: string,
   ruleId: ArchitectureDiagnosticRuleId,
 ): boolean {

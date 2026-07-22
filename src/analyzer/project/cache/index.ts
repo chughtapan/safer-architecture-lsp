@@ -1,7 +1,7 @@
 /**
  * @file Architecture report cache. Layered: a per-workspace in-memory
  * cache with the configurable `cacheTtlMs` TTL, backed by a persistent
- * on-disk report under `node_modules/.cache/agent-code-guard/` that
+ * on-disk report under `node_modules/.cache/safer-architecture-lsp/` that
  * survives across linter processes.
  *
  * Workspace scoping: state is owned by a `WorkspaceCache` instance per
