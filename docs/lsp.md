@@ -87,19 +87,17 @@ once, the LSP boot is warm. The watermark covers source files, `package.json`,
 
 ## Lifecycle
 
-The server runs inside `Effect.scoped(makeLspServer(connection))`. When the
-parent process closes stdio (Claude Code shutdown, editor exit), Bun exits
-and the ambient `Scope`'s finalizers fire: every workspace engine's
-`chokidar` watcher closes, every `WorkspaceCache` clears. No manual
-`dispose()` paths; the lifecycle is the Effect runtime's responsibility.
+The server runs inside `Effect.scoped(makeLspServer(connection))`. The
+protocol `shutdown`/`exit` sequence (or stdio loss) completes the scoped
+Effect and the ambient `Scope`'s finalizers fire: every workspace
+engine's `chokidar` watcher closes, every `WorkspaceCache` clears. Each
+engine additionally lives in its own child scope, so a config reload or
+workspace-folder removal tears down exactly one engine.
 
 ## Configuration
 
-V1 LSP doesn't read per-workspace overrides — every registered workspace uses
-the analyzer's default options. Future versions can wire
-`workspace/configuration` requests through `resolveArchitectureOptions` to
-respect a `agent-code-guard` section in `settings.json` / `.editorconfig`.
-
-For now, the analyzer's defaults apply. If you need different thresholds for
-LSP than for ESLint CI, run ESLint with the override; LSP will catch the
-same defaults the analyzer ships with.
+Each workspace reads `safer-architecture.config.json` at its root
+(schema-validated through `resolveArchitectureOptions`). Invalid config
+surfaces as an error diagnostic on the config file and defaults apply;
+edits to the file hot-reload the workspace's engine. The `check` CLI
+reads the same file, so editor and CI verdicts agree by construction.

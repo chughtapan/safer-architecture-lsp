@@ -20,7 +20,6 @@ export {
   projectSourceFiles,
   publicApiSourceFiles,
 } from "../source-files.js";
-export type { ProgramHealth } from "../source-files.js";
 export { collectPackageExportEntries } from "../package-exports/index.js";
 export { emptyPackageJson, readPackageJson } from "../package-json.js";
 export { uniqueDiagnostics } from "../diagnostics/index.js";

@@ -1,3 +1,4 @@
+// safer-arch-ignore no-trivial-sink-file: child-process lifecycle is a deliberate seam; folding it into the multiplexer would tangle spawn/kill handling with routing logic.
 /**
  * @file One child language server. Index 0 is the PRIMARY, authoritative
  * for language features; every other backend is a diagnostics-only
@@ -35,7 +36,7 @@ export class Backend {
   private primaryTail: Promise<void> = Promise.resolve();
   private readonly sidecarQueue: Buffer[] = [];
   private sidecarBytes = 0;
-  private sidecarFlushing = false;
+  private sidecarDraining = false;
 
   constructor(
     readonly index: number,
@@ -153,34 +154,31 @@ export class Backend {
     }
     this.sidecarQueue.push(packet);
     this.sidecarBytes += packet.length;
-    this.flushSidecar();
+    if (!this.sidecarDraining) this.flushSidecar();
   }
 
+  // Node's pipe buffer is unbounded — write() reports backpressure by
+  // returning false but still accepts the chunk. Once it does, stop
+  // handing it more and hold the backlog in our own bounded queue (which
+  // drops in enqueueSidecar) until the child drains its end.
   private flushSidecar(): void {
-    if (this.sidecarFlushing) return;
     const stdin = this.process?.stdin;
-    if (!stdin || stdin.destroyed) {
+    if (!stdin || stdin.destroyed || !stdin.writable) {
       this.sidecarQueue.length = 0;
       this.sidecarBytes = 0;
       return;
     }
-    this.sidecarFlushing = true;
-    const pump = (): void => {
-      if (!stdin.writable) {
-        this.sidecarQueue.length = 0;
-        this.sidecarBytes = 0;
-        this.sidecarFlushing = false;
+    while (this.sidecarQueue.length > 0) {
+      const packet = this.sidecarQueue.shift() as Buffer;
+      this.sidecarBytes -= packet.length;
+      if (!stdin.write(packet)) {
+        this.sidecarDraining = true;
+        stdin.once("drain", () => {
+          this.sidecarDraining = false;
+          this.flushSidecar();
+        });
         return;
       }
-      let writable = true;
-      while (writable && this.sidecarQueue.length > 0) {
-        const packet = this.sidecarQueue.shift() as Buffer;
-        this.sidecarBytes -= packet.length;
-        writable = stdin.write(packet);
-      }
-      if (this.sidecarQueue.length > 0) stdin.once("drain", pump);
-      else this.sidecarFlushing = false;
-    };
-    pump();
+    }
   }
 }
