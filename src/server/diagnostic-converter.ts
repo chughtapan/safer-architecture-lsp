@@ -1,3 +1,4 @@
+// safer-arch-ignore no-trivial-sink-file: the analyzer-to-LSP shape conversion is a deliberate seam; inlining it into lsp-server would couple protocol types into the publish loop.
 /**
  * @file Convert analyzer `ArchitectureDiagnostic` values into LSP
  * `Diagnostic` values for `publishDiagnostics`. Architecture findings

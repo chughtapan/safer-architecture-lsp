@@ -1,3 +1,4 @@
+// safer-arch-ignore no-trivial-sink-file: rule-docs owns the docs-URL contract; folding it into the converter would hide where deep links come from.
 /**
  * @file Per-rule documentation links. Every rule anchors into the
  * package-owned reference at docs/rules.md, whose heading slugs are the

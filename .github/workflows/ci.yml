@@ -30,3 +30,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      # Dogfood: the analyzer must pass on its own repository with the
+      # committed config + waivers. Exit 1 (findings) or 2 (can't
+      # analyze) fails the job.
+      - name: Self check
+        run: node dist/server/index.js check .

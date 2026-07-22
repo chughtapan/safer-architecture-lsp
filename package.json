@@ -1,7 +1,7 @@
 {
   "name": "@chughtapan/safer-architecture-lsp",
   "version": "0.1.0",
-  "description": "Whole-project TypeScript architecture analyzer + LSP server: folder graphs, layering, public-surface and module-shape rules, with reason-carrying exception directives.",
+  "description": "Whole-project TypeScript architecture analyzer: a check CLI for CI and agents, a stdio LSP for editors, and reason-carrying suppression waivers.",
   "type": "module",
   "license": "Apache-2.0",
   "author": "Tapan Chugh",
@@ -50,6 +50,18 @@
     "vitest": "^3.2.6"
   },
   "engines": {
-    "node": ">=20.0.0"
-  }
+    "node": ">=20.19.0"
+  },
+  "keywords": [
+    "architecture",
+    "lint",
+    "linter",
+    "lsp",
+    "language-server",
+    "typescript",
+    "boundaries",
+    "cycles",
+    "dependencies",
+    "ci"
+  ]
 }
