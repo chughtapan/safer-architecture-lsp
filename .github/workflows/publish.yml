@@ -37,6 +37,12 @@ jobs:
         run: npm install
       - name: Build (emits dist/ that main/bin/exports point at)
         run: npm run build
+      - name: Test
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Self check
+        run: node dist/server/index.js check .
       - name: Guard — tag must match package.json version
         run: |
           PKG=$(node -p "require('./package.json').version")

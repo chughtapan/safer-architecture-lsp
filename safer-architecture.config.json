@@ -1,0 +1,14 @@
+{
+  "publicTypePackages": [
+    { "package": "typescript", "reason": "the analyzer's contract is ts.Program-shaped: consumers hand us programs and receive diagnostics about TypeScript projects." },
+    { "package": "effect", "reason": "the engine API is Effect-native by design; Effect types are the resource-safety contract, not an implementation leak." },
+    { "package": "node", "reason": "ambient node lib types ride along with any fs/path-adjacent public signature; the package targets node >=20 explicitly." }
+  ],
+  "sharedFolderNames": [
+    { "folder": "analyzer", "reason": "the analyzer is this package's shared kernel: server, proxy, and CLI are alternative delivery surfaces over one analysis core." }
+  ],
+  "facadeFiles": [
+    { "file": "analyzer/project/source-files.ts", "reason": "deliberate program-construction facade: the three delivery surfaces need createProgram/programHealth without the full project barrel." },
+    { "file": "server/workspace-engine.ts", "reason": "deliberate engine facade: registry and lsp-server consume the engine contract directly; an index.ts would be a pass-through." }
+  ]
+}

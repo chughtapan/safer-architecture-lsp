@@ -31,13 +31,20 @@ export const ARCHITECTURE_DIAGNOSTIC_RULE_IDS = [
 export type ArchitectureDiagnosticRuleId =
   (typeof ARCHITECTURE_DIAGNOSTIC_RULE_IDS)[number];
 
-// A pseudo-rule used only to surface malformed `@agent-code-guard/architecture-exception:`
-// directive comments. It is reported alongside any architecture rule that
+// A pseudo-rule used only to surface malformed `safer-arch-ignore`
+// directive comments (and tombstoned legacy markers). It is reported alongside any architecture rule that
 // could legitimately fire, so users always see the parse error regardless of
 // which rules they have enabled.
 export const ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID =
   "architecture-directive-parse-error" as const;
 
+// A pseudo-rule that reports "analysis did not run" (missing or broken
+// tsconfig, crashed engine). A guardrail must never present a can't-
+// analyze state as an empty-clean report.
+export const ARCHITECTURE_ANALYSIS_UNAVAILABLE_RULE_ID =
+  "architecture-analysis-unavailable" as const;
+
 export type ArchitectureRuleId =
   | ArchitectureDiagnosticRuleId
-  | typeof ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID;
+  | typeof ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID
+  | typeof ARCHITECTURE_ANALYSIS_UNAVAILABLE_RULE_ID;

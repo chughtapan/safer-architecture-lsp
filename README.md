@@ -1,26 +1,47 @@
 # safer-architecture-lsp
 
-Whole-project TypeScript architecture analyzer and Language Server.
-It builds a folder-level import graph over a `ts.Program` and reports
-architecture findings — cycles, layering violations, oversized public
-surfaces, accidental boundary modules — as editor diagnostics or as a
-programmatic report for CI.
+Whole-project TypeScript architecture analysis with a deterministic CI
+gate and live editor diagnostics. It builds a real `ts.Program`, derives
+the folder-level import graph, and reports structural findings — cycles,
+layering violations, oversized public surfaces, boundary leaks — with
+every suppression carrying a written, auditable reason.
 
-Every rule links to its rationale in
-[safer-by-default PRINCIPLES.md](https://github.com/chughtapan/safer-by-default/blob/main/PRINCIPLES.md),
-and every architectural exception must carry a written reason, either in
-config allowances or as an in-source directive.
+**Why this instead of an ESLint rule?** Whole-project analysis doesn't
+fit a per-file lint model, and per-keystroke re-analysis doesn't fit CI
+tools. This package runs one warm analysis core behind two surfaces: a
+`check` command whose exit code CI can trust, and a Language Server that
+streams the same findings into the diagnostics channel your editor — or
+your coding agent — already reads. An agent that introduces a cycle sees
+the diagnostic while authoring, and the escape hatch is one line it must
+justify: that inline feedback loop, with a queryable waiver ledger, is
+the wedge.
 
-## Install
+> **Status: 0.1.0.** Rule heuristics are young and tuned on small
+> single-package repos; expect to configure. See the 0.x stability
+> policy in [CHANGELOG.md](./CHANGELOG.md).
+
+## CI in two minutes
 
 ```bash
 npm install --save-dev @chughtapan/safer-architecture-lsp
+npx safer-architecture-lsp check .
 ```
 
-## LSP server
+`check` analyzes the project once and exits `0` (clean), `1` (findings),
+or `2` (could not analyze — bad root, invalid config, unusable
+tsconfig). It always prints a summary line, so an empty result is
+distinguishable from a run that never happened:
 
-The `safer-architecture-lsp` bin speaks LSP over stdio. Point any LSP
-client at it for `.ts`/`.tsx` files:
+```
+safer-architecture check: 0 finding(s) across 0 file(s), 4 waiver(s), options from file — /repo
+```
+
+`--json` emits the full report (diagnostics + waivers) for machine
+consumption; `--waivers` prints the suppression ledger with reasons.
+
+## Editor / agent setup
+
+The `serve` subcommand speaks LSP over stdio:
 
 ```jsonc
 // Claude Code plugin.json
@@ -28,23 +49,82 @@ client at it for `.ts`/`.tsx` files:
   "lspServers": {
     "safer-architecture": {
       "command": "safer-architecture-lsp",
+      "args": ["serve"],
       "extensionToLanguage": { ".ts": "typescript", ".tsx": "typescriptreact" }
     }
   }
 }
 ```
 
-The server registers one analysis engine per workspace folder, keeps the
-report warm across edits (chokidar watcher + disk cache), and publishes
-file-level diagnostics whose `codeDescription` links to the rule's
-PRINCIPLES.md anchor. Analysis runs at save time; `didSave` invalidates
-the cache and republishes.
+Any stdio LSP client works the same way (`command: safer-architecture-lsp`,
+`args: ["serve"]`). Diagnostics are published for **every** analyzed
+file, not just open ones, and each finding deep-links its rule
+reference. Hosts that cannot run two servers for one file extension can
+front this server with the bundled `safer-lsp-proxy` multiplexer
+alongside `typescript-language-server`: the first backend in its config
+is primary, and a sidecar crash never takes the primary down.
 
-Editors that cannot multiplex two servers for one file extension can
-front this server with an LSP proxy alongside
-`typescript-language-server` (see
-[chughtapan/brief](https://github.com/chughtapan/brief) `lsp/proxy` for a
-working reference).
+Verify it's alive: stderr logs one line per workspace registration and
+per publish (`published N finding(s) across M file(s) … in Xms`).
+
+## Configuration
+
+Put `safer-architecture.config.json` at the workspace root. It is
+schema-validated; an invalid file fails `check` runs loudly and surfaces
+as an error diagnostic in the editor (with defaults applied). Edits
+hot-reload the workspace. The knobs you'll actually touch first:
+
+```jsonc
+{
+  // Third-party types intentionally part of your public API:
+  "publicTypePackages": [
+    { "package": "typescript", "reason": "our contract is ts.Program-shaped" }
+  ],
+  // Folders siblings may import freely (your shared kernel):
+  "sharedFolderNames": [
+    { "folder": "analyzer", "reason": "one analysis core, many surfaces" }
+  ],
+  // Deliberate non-index facade files:
+  "facadeFiles": [
+    { "file": "server/workspace-engine.ts", "reason": "engine contract" }
+  ],
+  // Public-surface budgets (defaults shown):
+  "maxPublicExports": 20,
+  "maxSubpathExports": 5
+}
+```
+
+Every allowance entry requires a `reason` — writing it *is* the
+architectural decision. The full option list lives in
+[docs/rules.md](./docs/rules.md), mapped rule-by-rule to the options
+that control it. This repository's own
+[safer-architecture.config.json](./safer-architecture.config.json) is a
+working example: CI runs `check .` on this codebase and fails on any
+unwaived finding.
+
+## Rules
+
+The complete reference — what each rule flags, why, its controlling
+options, and how to fix it — is [docs/rules.md](./docs/rules.md).
+Categories: import topology (cycles, layering, sibling domains), public
+surface (curation, size budgets, vendor-type leaks), folder shape
+(size, READMEs, explicit APIs), and module shape (accidental
+boundaries, trivial indirection, fat orchestrators).
+
+## Suppressions (waivers)
+
+One comment line, file-scoped, reason mandatory:
+
+```ts
+// safer-arch-ignore no-trivial-sink-file: deliberate seam; the overlay follow-up grows here.
+```
+
+A missing or empty reason is itself a diagnostic. Granted waivers are
+retained with their reasons and queryable via `check --waivers` — an
+auditable ledger, not a muted warning. Unknown rule ids error. The
+legacy two-line `@agent-code-guard/architecture-exception` marker from
+this code's previous life is never honored and always errors, so a
+stale suppression cannot silently stop working.
 
 ## Programmatic API
 
@@ -56,62 +136,43 @@ import {
 
 const options = resolveArchitectureOptions({ projectRoot: process.cwd() });
 const report = analyzeResolvedArchitecture(options);
-for (const d of report.diagnostics) {
-  console.log(`${d.severity} ${d.ruleId} ${d.file}: ${d.message}`);
-}
+for (const d of report.diagnostics) console.log(d.ruleId, d.file, d.message);
+for (const w of report.waivers) console.log("waived", w.ruleId, w.reason);
 ```
 
-`resolveArchitectureOptions` validates against an
-[Effect Schema](https://effect.website) with per-issue error messages.
-Allowance lists (`allowedPublicSubpaths`, shared-kernel folders, public
-contract types, …) require a `reason` string per entry — writing the
-reason *is* the architectural decision.
+## Scope and limits (read before adopting)
 
-## Rules
+- The import graph resolves **relative imports** within one package.
+  `tsconfig` path aliases, workspace packages, and project references
+  are not yet modeled (tracked in TODOS) — in a monorepo, run one
+  `check` per package root.
+- Analysis is save-time in the editor; live keystroke-level diagnostics
+  are a follow-up.
+- A tsconfig found above the workspace root is scoped to the
+  workspace's files automatically.
 
-The registry in `src/analyzer/rule-ids.ts` is the single source of
-truth. Highlights:
+## Troubleshooting
 
-| Rule | Guards against |
-| --- | --- |
-| `no-folder-cycle`, `no-root-internal-cycle` | dependency cycles between folders / root modules |
-| `no-upward-layer-import`, `no-cross-domain-sibling-import`, `no-distant-folder-import` | layering and domain-boundary violations |
-| `no-large-public-surface`, `require-curated-public-facade`, `no-inventory-barrel`, `no-export-star-boundary` | uncurated or oversized public surfaces |
-| `no-public-vendor-type-leak`, `no-public-infra-type-leak`, `require-boundary-owned-types` | third-party types leaking into public contracts |
-| `no-large-folder`, `folder-readme-required`, `folder-explicit-api-required` | folder hygiene |
-| `file-implicit-boundary-module`, `shared-kernel-cohesion`, `no-trivial-sink-file`, `no-fat-orchestrator` | module-shape smells |
-
-## Exception directives
-
-Suppress a rule for one file with a comment pair — the `reason:` line is
-mandatory and its absence is itself a diagnostic:
-
-```ts
-// @agent-code-guard/architecture-exception: no-trivial-sink-file
-// reason: audio.ts is the deliberate single owner of per-scene concat.
-```
-
-The directive namespace keeps the `agent-code-guard` prefix for
-compatibility with code written against the rules' previous home in
-`eslint-plugin-agent-code-guard`.
+- **No diagnostics at all?** Check stderr. A missing/broken tsconfig now
+  surfaces as an `architecture-analysis-unavailable` error diagnostic —
+  if you see literally nothing, your client isn't connected (`serve`
+  missing from args is the common cause; a bare invocation prints help
+  and exits instead of hanging).
+- **"config INVALID" in stderr / squiggle on the config file** — the
+  JSON failed schema validation; the message names the offending key.
+- **Findings vanished after an edit?** The engine hot-reloaded with your
+  new config; run `check --waivers` to see what is being suppressed.
 
 ## Development
 
 ```bash
 npm install
 npm run build   # tsc → dist/
-npm test        # builds, then vitest (fixture projects + LSP handshake)
-npm run lint    # knip via agent-code-guard-knip
+npm test        # vitest: analyzer fixtures, CLI contract, proxy, full LSP session
+npm run lint    # knip
+node dist/server/index.js check .   # the dogfood gate CI enforces
 ```
 
-Publishing: push a `vX.Y.Z` tag matching `package.json` version;
-`.github/workflows/publish.yml` publishes to npm via trusted publishing.
-
-## Provenance
-
-Extracted from [chughtapan/brief](https://github.com/chughtapan/brief)
-(`lsp/architecture`), where it ran as the vendored architecture sidecar
-of the brief Claude Code plugin; the rules originated as the
-architecture preset of `eslint-plugin-agent-code-guard` before that
-preset was retired. This repository is now the sole home of the
-analyzer and server.
+Publishing: push a `vX.Y.Z` tag matching `package.json` — the publish
+workflow builds, tests, lints, self-checks, then publishes to npm via
+trusted publishing.

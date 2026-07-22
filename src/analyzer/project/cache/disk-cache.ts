@@ -4,7 +4,7 @@
  * files matches the previous run, so a fresh ESLint process can skip
  * the full analyzer cold-build (~3 s on a 1500-file project).
  *
- * Cache location: `node_modules/.cache/agent-code-guard/report.json`
+ * Cache location: `node_modules/.cache/safer-architecture-lsp/report.json`
  * under the project root. Auto-gitignored under `node_modules/` and
  * auto-cleaned by package managers that prune the `.cache` directory.
  */
@@ -15,6 +15,7 @@ import path from "node:path";
 import ts from "typescript";
 import type {
   ArchitectureDiagnostic,
+  ArchitectureWaiver,
   ArchitectureReport,
   ResolvedArchitectureOptions,
 } from "../diagnostics/index.js";
@@ -23,8 +24,8 @@ import { dependencyWatermarks } from "./dependency-watermark.js";
 // v2 bumped 2026-05-12: watermark now includes package.json, tsconfig
 // content, and analyzer version so dependency / config edits invalidate.
 // v1 caches read as null on next call.
-const CACHE_VERSION = 2;
-const CACHE_DIR_SEGMENTS = ["node_modules", ".cache", "agent-code-guard"];
+const CACHE_VERSION = 3;
+const CACHE_DIR_SEGMENTS = ["node_modules", ".cache", "safer-architecture-lsp"];
 const CACHE_FILE = "report.json";
 
 function discardCacheError(_captured: unknown): null {
@@ -47,6 +48,7 @@ interface PersistedReport {
   readonly files: readonly FileWatermark[];
   readonly diagnostics: readonly ArchitectureDiagnostic[];
   readonly diagnosticsByFile: Record<string, readonly ArchitectureDiagnostic[]>;
+  readonly waivers: readonly ArchitectureWaiver[];
 }
 
 function cacheFilePathFor(projectRoot: string): string {
@@ -99,6 +101,7 @@ export function writeDiskCache(
     files,
     diagnostics: report.diagnostics,
     diagnosticsByFile,
+    waivers: report.waivers,
   };
   fs.writeFileSync(filePath, JSON.stringify(payload));
 }
@@ -112,7 +115,11 @@ export function writeDiskCache(
 export function hydrateReport(persisted: PersistedReport): ArchitectureReport {
   const byFile = new Map<string, readonly ArchitectureDiagnostic[]>();
   for (const [k, v] of Object.entries(persisted.diagnosticsByFile)) byFile.set(k, v);
-  return { diagnostics: persisted.diagnostics, diagnosticsByFile: byFile };
+  return {
+    diagnostics: persisted.diagnostics,
+    diagnosticsByFile: byFile,
+    waivers: persisted.waivers,
+  };
 }
 
 /**

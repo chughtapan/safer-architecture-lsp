@@ -28,7 +28,7 @@ function readFirstMessage(chunks: Buffer): unknown {
 }
 
 it("answers the initialize handshake with its identity", async () => {
-  const child = spawn(process.execPath, ["dist/server/index.js"], {
+  const child = spawn(process.execPath, ["dist/server/index.js", "serve"], {
     stdio: ["pipe", "pipe", "inherit"],
   });
   const stdout: Buffer[] = [];

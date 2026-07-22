@@ -1,65 +1,30 @@
+// safer-arch-ignore no-trivial-sink-file: rule-docs owns the docs-URL contract; folding it into the converter would hide where deep links come from.
 /**
- * @file Per-rule PRINCIPLES.md anchors. URLs pin to `main` so the
- * anchor resolves against the current heading text; the slug follows
- * GitHub's heading-to-anchor algorithm (lowercase, spaces and dots
- * to hyphens, drop other non-alphanumeric).
+ * @file Per-rule documentation links. Every rule anchors into the
+ * package-owned reference at docs/rules.md, whose heading slugs are the
+ * rule ids themselves, so the href is derivable and cannot drift.
  */
 
 import type { ArchitectureRuleId } from "../analyzer/rule-ids.js";
 
-const PRINCIPLES_BASE =
-  "https://github.com/chughtapan/safer-by-default/blob/main/PRINCIPLES.md";
-
-/** PRINCIPLES.md anchor for each architecture rule. */
-const ARCHITECTURE_RULE_ANCHORS: Readonly<Record<ArchitectureRuleId, string>> = {
-  "no-inventory-barrel": "#5-discipline-over-capability",
-  "no-internal-subpath-export": "#5-discipline-over-capability",
-  "no-public-vendor-type-leak": "#2-validate-at-every-boundary--schemas-where-data-enters-types-inside",
-  "no-export-star-boundary": "#5-discipline-over-capability",
-  "no-folder-cycle": "#8-the-ratchet--escalate-up-not-around",
-  "no-root-internal-cycle": "#8-the-ratchet--escalate-up-not-around",
-  "no-large-public-surface": "#6-the-budget-gate--scope-is-a-hard-budget",
-  "no-cross-domain-sibling-import": "#8-the-ratchet--escalate-up-not-around",
-  "no-upward-layer-import": "#8-the-ratchet--escalate-up-not-around",
-  "no-public-test-helper-leak": "#5-discipline-over-capability",
-  "no-implementation-file-public-entry": "#5-discipline-over-capability",
-  "no-public-infra-type-leak": "#2-validate-at-every-boundary--schemas-where-data-enters-types-inside",
-  "no-package-mesh": "#8-the-ratchet--escalate-up-not-around",
-  "no-large-folder": "#6-the-budget-gate--scope-is-a-hard-budget",
-  "folder-readme-required": "#5-discipline-over-capability",
-  "no-distant-folder-import": "#8-the-ratchet--escalate-up-not-around",
-  "require-curated-public-facade": "#5-discipline-over-capability",
-  "require-boundary-owned-types": "#2-validate-at-every-boundary--schemas-where-data-enters-types-inside",
-  "folder-explicit-api-required": "#6-the-budget-gate--scope-is-a-hard-budget",
-  "file-implicit-boundary-module": "#6-the-budget-gate--scope-is-a-hard-budget",
-  "shared-kernel-cohesion": "#5-discipline-over-capability",
-  "no-trivial-sink-file": "#5-discipline-over-capability",
-  "no-fat-orchestrator": "#5-discipline-over-capability",
-  "architecture-directive-parse-error": "#5-discipline-over-capability",
-};
+const RULE_DOCS_BASE =
+  "https://github.com/chughtapan/safer-architecture-lsp/blob/main/docs/rules.md";
 
 const FALLBACK_CODE_DESCRIPTION: { readonly href: string } = Object.freeze({
-  href: PRINCIPLES_BASE,
+  href: RULE_DOCS_BASE,
 });
 
-/** Pre-built frozen `codeDescription` per rule id. */
-const ARCHITECTURE_RULE_CODE_DESCRIPTIONS: Readonly<
-  Record<ArchitectureRuleId, { readonly href: string }>
-> = Object.freeze(
-  Object.fromEntries(
-    Object.entries(ARCHITECTURE_RULE_ANCHORS).map(([id, anchor]) => [
-      id,
-      Object.freeze({ href: `${PRINCIPLES_BASE}${anchor}` }),
-    ]),
-  ) as Record<ArchitectureRuleId, { readonly href: string }>,
-);
+const cache = new Map<string, { readonly href: string }>();
 
 /** `codeDescription` for `ruleId`. Returns a shared frozen object. */
 export function ruleCodeDescription(
   ruleId: string,
 ): { readonly href: string } {
-  return (
-    ARCHITECTURE_RULE_CODE_DESCRIPTIONS[ruleId as ArchitectureRuleId] ??
-    FALLBACK_CODE_DESCRIPTION
-  );
+  if (ruleId.length === 0) return FALLBACK_CODE_DESCRIPTION;
+  let entry = cache.get(ruleId);
+  if (entry === undefined) {
+    entry = Object.freeze({ href: `${RULE_DOCS_BASE}#${ruleId as ArchitectureRuleId}` });
+    cache.set(ruleId, entry);
+  }
+  return entry;
 }

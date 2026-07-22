@@ -42,33 +42,58 @@ it("reports nothing for an acyclic single-owner project", () => {
   expect(ruleIdsFor(fixture.root)).toEqual([]);
 });
 
-it("suppresses a diagnostic via a reason-carrying exception directive", () => {
+it("suppresses a diagnostic via a reason-carrying safer-arch-ignore directive and records the waiver", () => {
   fixture = makeFixture({
     "alpha/index.ts":
-      "// @agent-code-guard/architecture-exception: no-folder-cycle\n" +
-      "// reason: fixture pins the suppression contract for this rule.\n" +
+      "// safer-arch-ignore no-folder-cycle: fixture pins the suppression contract.\n" +
       'import { b } from "../beta/index.js";\nexport const a: number = b + 1;\n',
     "beta/index.ts":
       'import { a } from "../alpha/index.js";\nexport const b: number = a + 1;\n',
   });
   const options = resolveArchitectureOptions({ projectRoot: fixture.root });
-  const diagnostics = analyzeResolvedArchitecture(options).diagnostics;
-  const alphaCycleFindings = diagnostics.filter(
+  const report = analyzeResolvedArchitecture(options);
+  const alphaCycleFindings = report.diagnostics.filter(
     (d) => d.ruleId === "no-folder-cycle" && d.file.includes("alpha"),
   );
   expect(alphaCycleFindings).toEqual([]);
-  expect(diagnostics.map((d) => d.ruleId)).not.toContain(
+  expect(report.diagnostics.map((d) => d.ruleId)).not.toContain(
     "architecture-directive-parse-error",
   );
+  const waiver = report.waivers.find(
+    (w) => w.ruleId === "no-folder-cycle" && w.file.includes("alpha"),
+  );
+  expect(waiver?.reason).toBe("fixture pins the suppression contract.");
 });
 
-it("reports a parse error for a directive missing its reason line", () => {
+it("reports a parse error for a directive missing its reason", () => {
   fixture = makeFixture({
     "alpha/index.ts":
-      "// @agent-code-guard/architecture-exception: no-folder-cycle\n" +
+      "// safer-arch-ignore no-folder-cycle:\n" +
       'import { b } from "../beta/index.js";\nexport const a: number = b + 1;\n',
     "beta/index.ts":
       'import { a } from "../alpha/index.js";\nexport const b: number = a + 1;\n',
   });
   expect(ruleIdsFor(fixture.root)).toContain("architecture-directive-parse-error");
+});
+
+it("reports a parse error for an unknown rule id", () => {
+  fixture = makeFixture({
+    "core/index.ts":
+      "// safer-arch-ignore not-a-real-rule: because.\nexport const answer: number = 42;\n",
+  });
+  expect(ruleIdsFor(fixture.root)).toContain("architecture-directive-parse-error");
+});
+
+it("tombstones the legacy directive marker instead of honoring it", () => {
+  fixture = makeFixture({
+    "alpha/index.ts":
+      "// @agent-code-guard/architecture-exception: no-folder-cycle\n" +
+      "// reason: legacy two-line form must not suppress anything.\n" +
+      'import { b } from "../beta/index.js";\nexport const a: number = b + 1;\n',
+    "beta/index.ts":
+      'import { a } from "../alpha/index.js";\nexport const b: number = a + 1;\n',
+  });
+  const ruleIds = ruleIdsFor(fixture.root);
+  expect(ruleIds).toContain("architecture-directive-parse-error");
+  expect(ruleIds).toContain("no-folder-cycle");
 });

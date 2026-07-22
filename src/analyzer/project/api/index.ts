@@ -16,6 +16,7 @@ export {
 export {
   createProgram,
   findPackageReportFile,
+  programHealth,
   projectSourceFiles,
   publicApiSourceFiles,
 } from "../source-files.js";
@@ -26,6 +27,7 @@ export type {
   ArchitectureDiagnostic,
   ArchitectureDiagnosticRuleId,
   ArchitectureReport,
+  ArchitectureWaiver,
   ArchitectureSeverity,
   LayerDefinition,
   PackageExportEntry,

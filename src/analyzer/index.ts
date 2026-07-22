@@ -20,6 +20,7 @@ import {
 import {
   createProgram,
   findPackageReportFile,
+  programHealth,
   projectSourceFiles,
   uniqueDiagnostics,
 } from "./project/api/index.js";
@@ -28,20 +29,26 @@ import {
   buildDirectiveIndex,
   isDirectiveSuppressed,
   parseDirectivesFromSourceFile,
+  type DirectiveIndex,
   type FileDirectives,
 } from "./architecture-exceptions.js";
-import { ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID } from "./rule-ids.js";
+import {
+  ARCHITECTURE_ANALYSIS_UNAVAILABLE_RULE_ID,
+  ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID,
+} from "./rule-ids.js";
 import type {
   ArchitectureDiagnostic,
   ArchitectureDiagnosticRuleId,
   ArchitectureReport,
+  ArchitectureWaiver,
   ResolvedArchitectureOptions,
 } from "./project/api/index.js";
 
 interface DirectiveAnalysis {
   readonly directiveErrorDiagnostics: readonly ArchitectureDiagnostic[];
-  readonly directiveIndex: ReadonlyMap<string, ReadonlySet<ArchitectureDiagnosticRuleId>>;
+  readonly directiveIndex: DirectiveIndex;
   readonly attemptedSuppressions: ReadonlyMap<string, ReadonlySet<ArchitectureDiagnosticRuleId>>;
+  readonly waivers: readonly ArchitectureWaiver[];
 }
 
 /**
@@ -68,6 +75,7 @@ export function analyzeResolvedArchitecture(
   const packageJson = readPackageJson(options.projectRoot) ?? emptyPackageJson();
   const program = programProvider();
   const sourceFiles = program ? projectSourceFiles(program, options.projectRoot) : [];
+  const unavailableDiagnostics = program === null ? analysisUnavailable(options) : [];
   const packageReportFile = findPackageReportFile(sourceFiles, options.projectRoot);
   const graph = buildProjectGraph(sourceFiles, packageJson, options, packageReportFile);
   const directiveAnalysis = analyzeDirectiveComments(sourceFiles);
@@ -83,10 +91,30 @@ export function analyzeResolvedArchitecture(
   ]);
 
   const diagnostics = [
+    ...unavailableDiagnostics,
     ...directiveAnalysis.directiveErrorDiagnostics,
     ...filterSuppressedDiagnostics(allDiagnostics, directiveAnalysis),
   ];
-  return { diagnostics, diagnosticsByFile: indexByFile(diagnostics) };
+  return {
+    diagnostics,
+    diagnosticsByFile: indexByFile(diagnostics),
+    waivers: directiveAnalysis.waivers,
+  };
+}
+
+function analysisUnavailable(
+  options: ResolvedArchitectureOptions,
+): readonly ArchitectureDiagnostic[] {
+  const health = programHealth(options);
+  if (health.status === "ok") return [];
+  return [
+    {
+      ruleId: ARCHITECTURE_ANALYSIS_UNAVAILABLE_RULE_ID,
+      file: health.configPath ?? path.join(options.projectRoot, "tsconfig.json"),
+      severity: "error",
+      message: `Architecture analysis did not run: ${health.detail}. Fix the TypeScript project configuration; until then this workspace has NO architecture coverage.`,
+    },
+  ];
 }
 
 function indexByFile(
@@ -133,6 +161,9 @@ function analyzeDirectiveComments(
     attemptedSuppressions,
     directiveErrorDiagnostics,
     directiveIndex: buildDirectiveIndex(fileDirectives),
+    waivers: fileDirectives.flatMap(({ file, directives }) =>
+      directives.map((d) => ({ file, ruleId: d.ruleId, reason: d.reason })),
+    ),
   };
 }
 
