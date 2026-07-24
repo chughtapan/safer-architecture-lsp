@@ -1,6 +1,6 @@
 {
   "name": "@chughtapan/safer-architecture-lsp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Whole-project TypeScript architecture analyzer: a check CLI for CI and agents, a stdio LSP for editors, and reason-carrying suppression waivers.",
   "type": "module",
   "license": "Apache-2.0",
