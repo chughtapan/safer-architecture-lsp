@@ -10,9 +10,14 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
 import { FrameDecoder, encodePacket, type Message } from "../dist/proxy/framing.js";
 import { parseBackendSpecs } from "../dist/proxy/config.js";
+
+const PACKAGE_VERSION: string = (
+  createRequire(import.meta.url)("../package.json") as { version: string }
+).version;
 
 // A fake language server driven entirely off stdin frames. Role "primary"
 // answers hover and advertises hoverProvider; "sidecar" publishes
@@ -246,7 +251,7 @@ describe("multiplexing primary and diagnostics sidecar", () => {
     const initialize = await client.next();
     expect(initialize.id).toBe(1);
     const result = initialize.result as { serverInfo: unknown; capabilities: Record<string, unknown> };
-    expect(result.serverInfo).toEqual({ name: "safer-lsp-proxy", version: "0.1.0" });
+    expect(result.serverInfo).toEqual({ name: "safer-lsp-proxy", version: PACKAGE_VERSION });
     expect(result.capabilities.hoverProvider).toBe(true);
     expect((result.capabilities.workspace as { workspaceFolders: { supported: boolean } }).workspaceFolders.supported).toBe(true);
 
