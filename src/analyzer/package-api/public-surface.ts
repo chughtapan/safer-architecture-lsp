@@ -5,13 +5,18 @@ import {
   exportedDeclarationName,
   hasExportModifier,
 } from "../project/index.js";
-import { packageAllowedInPublicTypes, packageNameFromSpecifier } from "../type-surface/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
+import { packageAllowedInPublicTypes, publicTypePackageForSpecifier } from "../type-surface/index.js";
+import type {
+  ArchitectureDiagnostic,
+  PackageJson,
+  ResolvedArchitectureOptions,
+} from "../project/api/index.js";
 import type { ProjectArchitectureGraph, SourceModule } from "../project/index.js";
 
 export function checkPublicSurface(
   graph: ProjectArchitectureGraph,
   sourceFiles: readonly ts.SourceFile[],
+  packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   const sourceFileByName = new Map(
@@ -23,7 +28,7 @@ export function checkPublicSurface(
     ...largePublicSurfaceDiagnostics(graph, options),
     ...curatedPublicFacadeDiagnostics(graph, options),
     ...publicTestHelperLeakDiagnostics(graph),
-    ...boundaryOwnedTypeDiagnostics(graph, sourceFileByName, options),
+    ...boundaryOwnedTypeDiagnostics(graph, sourceFileByName, packageJson, options),
   ]);
 }
 
@@ -137,19 +142,20 @@ function publicTestHelperLeakDiagnostics(
 function boundaryOwnedTypeDiagnostics(
   graph: ProjectArchitectureGraph,
   sourceFileByName: ReadonlyMap<string, ts.SourceFile>,
+  packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   return graph.publicModules.flatMap((module) => {
     const sourceFile = sourceFileByName.get(module.fileName);
     if (!sourceFile) return [];
 
-    const importedTypes = externalImportedIdentifiers(sourceFile, options);
+    const importedTypes = externalImportedIdentifiers(sourceFile, packageJson, options);
     if (importedTypes.size === 0) {
-      return externalReexportBoundaryOwnedDiagnostics(sourceFile, module, options);
+      return externalReexportBoundaryOwnedDiagnostics(sourceFile, module, packageJson, options);
     }
 
     return [
-      ...externalReexportBoundaryOwnedDiagnostics(sourceFile, module, options),
+      ...externalReexportBoundaryOwnedDiagnostics(sourceFile, module, packageJson, options),
       ...exportedDeclarationTypeDiagnostics(sourceFile, module, importedTypes),
     ];
   });
@@ -158,13 +164,14 @@ function boundaryOwnedTypeDiagnostics(
 function externalReexportBoundaryOwnedDiagnostics(
   sourceFile: ts.SourceFile,
   module: SourceModule,
+  packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   return sourceFile.statements.flatMap((statement) => {
     if (!ts.isExportDeclaration(statement)) return [];
     if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) return [];
 
-    const packageName = packageNameFromSpecifier(statement.moduleSpecifier.text);
+    const packageName = publicTypePackageForSpecifier(statement.moduleSpecifier.text, packageJson);
     if (packageName === null || packageAllowedInPublicTypes(packageName, options)) return [];
 
     return [
@@ -205,11 +212,12 @@ function exportedDeclarationTypeDiagnostics(
 
 function externalImportedIdentifiers(
   sourceFile: ts.SourceFile,
+  packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): ReadonlyMap<string, string> {
   const identifiers = new Map<string, string>();
   for (const statement of sourceFile.statements) {
-    addExternalImportedIdentifiers(identifiers, statement, options);
+    addExternalImportedIdentifiers(identifiers, statement, packageJson, options);
   }
   return identifiers;
 }
@@ -217,20 +225,22 @@ function externalImportedIdentifiers(
 function addExternalImportedIdentifiers(
   identifiers: Map<string, string>,
   statement: ts.Statement,
+  packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): void {
   if (!ts.isImportDeclaration(statement)) return;
-  const packageName = externalPackageNameFromImport(statement, options);
+  const packageName = externalPackageNameFromImport(statement, packageJson, options);
   if (packageName === null || !statement.importClause) return;
   addImportClauseIdentifiers(identifiers, statement.importClause, packageName);
 }
 
 function externalPackageNameFromImport(
   statement: ts.ImportDeclaration,
+  packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): string | null {
   if (!ts.isStringLiteral(statement.moduleSpecifier)) return null;
-  const packageName = packageNameFromSpecifier(statement.moduleSpecifier.text);
+  const packageName = publicTypePackageForSpecifier(statement.moduleSpecifier.text, packageJson);
   if (packageName === null) return null;
   return packageAllowedInPublicTypes(packageName, options) ? null : packageName;
 }

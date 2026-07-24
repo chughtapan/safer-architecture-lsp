@@ -24,7 +24,7 @@ export function checkPublicVendorTypeLeaks(
   const checker = program.getTypeChecker();
   const diagnostics = publicApiSourceFiles(program, packageJson, options).flatMap(
     (sourceFile) => [
-      ...externalReExportDiagnostics(sourceFile, options),
+      ...externalReExportDiagnostics(sourceFile, packageJson, options),
       ...exportedSignatureDiagnostics(checker, sourceFile, packageJson, options),
     ],
   );
@@ -34,13 +34,14 @@ export function checkPublicVendorTypeLeaks(
 
 function externalReExportDiagnostics(
   sourceFile: ts.SourceFile,
+  packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   return sourceFile.statements.flatMap((statement) => {
     if (!ts.isExportDeclaration(statement)) return [];
     if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) return [];
 
-    const packageName = packageNameFromSpecifier(statement.moduleSpecifier.text);
+    const packageName = publicTypePackageForSpecifier(statement.moduleSpecifier.text, packageJson);
     if (packageName === null || packageAllowedInPublicTypes(packageName, options)) return [];
 
     return [
@@ -58,7 +59,7 @@ function externalReExportDiagnostics(
   });
 }
 
-export function packageNameFromSpecifier(specifier: string): string | null {
+function packageNameFromSpecifier(specifier: string): string | null {
   if (specifier.startsWith(".")) return null;
   if (specifier.startsWith("node:")) return "node";
 
@@ -69,6 +70,58 @@ export function packageNameFromSpecifier(specifier: string): string | null {
   }
 
   return firstSegment;
+}
+
+/**
+ * Classify a module specifier for the public-type rules, resolving Node
+ * subpath imports (`#`-prefixed) through the package's own `imports`
+ * map. A `#` specifier that maps to an in-package path is internal
+ * (like a relative import) and returns null; one that maps only to a
+ * bare package resolves to that vendor package name. Non-`#` specifiers
+ * keep the plain package-name classification.
+ */
+export function publicTypePackageForSpecifier(
+  specifier: string,
+  packageJson: Pick<PackageJson, "imports">,
+): string | null {
+  if (!specifier.startsWith("#")) return packageNameFromSpecifier(specifier);
+
+  const targets = resolveSubpathImportTargets(specifier, packageJson.imports);
+  // Any relative target means the specifier resolves inside the package.
+  if (targets.some(isInternalImportTarget)) return null;
+  for (const target of targets) {
+    const vendor = packageNameFromSpecifier(target);
+    if (vendor !== null) return vendor;
+  }
+  // An unmapped or unresolved `#` specifier is never a vendor package.
+  return null;
+}
+
+function isInternalImportTarget(target: string): boolean {
+  return target.startsWith(".") || target.startsWith("#");
+}
+
+function resolveSubpathImportTargets(
+  specifier: string,
+  imports: ReadonlyMap<string, readonly string[]>,
+): readonly string[] {
+  const exact = imports.get(specifier);
+  if (exact) return exact;
+
+  for (const [key, targets] of imports) {
+    const star = key.indexOf("*");
+    if (star === -1) continue;
+    const prefix = key.slice(0, star);
+    const suffix = key.slice(star + 1);
+    if (
+      specifier.length >= prefix.length + suffix.length &&
+      specifier.startsWith(prefix) &&
+      specifier.endsWith(suffix)
+    ) {
+      return targets;
+    }
+  }
+  return [];
 }
 
 function packageNameFromFileName(fileName: string): string | null {

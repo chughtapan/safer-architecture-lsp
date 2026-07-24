@@ -5,7 +5,6 @@
  */
 
 import type { PackageExportEntry, PackageJson } from "../diagnostics/index.js";
-import { isJsonObject } from "../package-json.js";
 
 /**
  * Flatten a `package.json` into the list of public path / target path
@@ -38,7 +37,7 @@ export function collectPackageExportEntries(
  * subpath entries (root call typically passes `"."`).
  * @returns Flattened public-path-to-target-path entries.
  */
-function collectExportsValue(
+export function collectExportsValue(
   value: unknown,
   publicPath: string,
 ): readonly PackageExportEntry[] {
@@ -46,7 +45,7 @@ function collectExportsValue(
   if (Array.isArray(value)) {
     return value.flatMap((item) => collectExportsValue(item, publicPath));
   }
-  if (!isJsonObject(value)) return [];
+  if (value === null || typeof value !== "object") return [];
 
   const entries = Object.entries(value);
   const hasSubpathKeys = entries.some(([key]) => key === "." || key.startsWith("./"));
