@@ -40,7 +40,32 @@ export function createProgram(
 
   // Passing the previous program lets TypeScript reuse every unchanged
   // SourceFile, turning per-save rebuilds from cold to incremental.
-  return ts.createProgram(rootNames, parsed.options, undefined, oldProgram);
+  return ts.createProgram(rootNames, analysisOptions(parsed.options), undefined, oldProgram);
+}
+
+/**
+ * Neutralize inherited build and emit modes for the analysis program:
+ * force `noEmit`, and disable composite, declaration, and incremental
+ * modes. Lib diagnostics are skipped because analysis consumes checker
+ * symbols but does not need to validate dependency declarations. These
+ * are isolation safeguards; root-file scoping reduces cold cost, while
+ * previous-program reuse speeds incremental rebuilds.
+ */
+function analysisOptions(base: ts.CompilerOptions): ts.CompilerOptions {
+  const inherited = { ...base };
+  delete inherited.declarationMap;
+  delete inherited.sourceMap;
+  delete inherited.tsBuildInfoFile;
+
+  return {
+    ...inherited,
+    noEmit: true,
+    composite: false,
+    declaration: false,
+    incremental: false,
+    skipLibCheck: true,
+    skipDefaultLibCheck: true,
+  };
 }
 
 /** Why `createProgram` would return null, in user-actionable terms. */

@@ -1,6 +1,8 @@
 import ts from "typescript";
 import { uniqueDiagnostics } from "../project/api/index.js";
 import { publicApiSourceFiles } from "../project/api/index.js";
+import { buildExternalTypeReach } from "./external-reach.js";
+import type { ProjectArchitectureGraph } from "../project/index.js";
 import type {
   ResolvedArchitectureOptions,
   PackageJson,
@@ -18,14 +20,18 @@ interface TypeVisitContext {
 
 export function checkPublicVendorTypeLeaks(
   program: ts.Program,
+  graph: ProjectArchitectureGraph,
   packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   const checker = program.getTypeChecker();
+  const mayReachExternal = buildExternalTypeReach(program, graph, (specifier) =>
+    publicTypePackageForSpecifier(specifier, packageJson),
+  );
   const diagnostics = publicApiSourceFiles(program, packageJson, options).flatMap(
     (sourceFile) => [
       ...externalReExportDiagnostics(sourceFile, packageJson, options),
-      ...exportedSignatureDiagnostics(checker, sourceFile, packageJson, options),
+      ...exportedSignatureDiagnostics(checker, sourceFile, packageJson, options, mayReachExternal),
     ],
   );
 
@@ -161,6 +167,7 @@ function exportedSignatureDiagnostics(
   sourceFile: ts.SourceFile,
   packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
+  mayReachExternal: (declarationFile: ts.SourceFile) => boolean,
 ): readonly ArchitectureDiagnostic[] {
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
   if (!moduleSymbol) return [];
@@ -168,6 +175,10 @@ function exportedSignatureDiagnostics(
   return checker.getExportsOfModule(moduleSymbol).flatMap((exportedSymbol) => {
     const declaration = exportedSymbol.valueDeclaration ?? exportedSymbol.declarations?.[0];
     if (!declaration) return [];
+    // An export whose declaring file cannot reach any external import
+    // has an entirely package-local type: skip the deep walk that would
+    // otherwise fully resolve it.
+    if (!mayReachExternal(declaration.getSourceFile())) return [];
 
     const exportedType = typeForExportedSymbol(checker, exportedSymbol, declaration);
     const leakedPackages = externalPackagesFromType(
