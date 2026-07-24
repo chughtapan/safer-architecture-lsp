@@ -28,6 +28,11 @@ interface CachedReport {
   readonly expiresAt: number;
 }
 
+interface DiskCacheLookup {
+  readonly report: ArchitectureReport | null;
+  readonly watermark: ReturnType<typeof computeFileWatermark> | null;
+}
+
 /**
  * Per-workspace cache for the architecture report. Owns its own
  * in-memory map plus the option-key memoization. The disk-cache layer
@@ -64,8 +69,9 @@ export class WorkspaceCache {
     const cached = this.#reportCache.get(cacheKey);
     if (cached !== undefined && cached.expiresAt > now) return cached.report;
 
-    const fromDisk =
+    const diskLookup =
       programFingerprint === undefined ? this.#loadFromDiskCache(options) : null;
+    const fromDisk = diskLookup?.report ?? null;
     if (fromDisk !== null) {
       this.#reportCache.set(cacheKey, {
         report: fromDisk,
@@ -76,7 +82,9 @@ export class WorkspaceCache {
 
     const report = analyzeResolvedArchitecture(options, programProvider);
     this.#reportCache.set(cacheKey, { report, expiresAt: now + options.cacheTtlMs });
-    if (programFingerprint === undefined) this.#persistToDiskCache(options, report);
+    if (programFingerprint === undefined) {
+      this.#persistToDiskCache(options, report, diskLookup?.watermark ?? null);
+    }
     return report;
   }
 
@@ -97,18 +105,26 @@ export class WorkspaceCache {
     return key;
   }
 
-  #loadFromDiskCache(options: ResolvedArchitectureOptions): ArchitectureReport | null {
+  #loadFromDiskCache(options: ResolvedArchitectureOptions): DiskCacheLookup {
     const persisted = readDiskCache(options.projectRoot);
-    if (persisted === null) return null;
-    if (persisted.optionsHash !== hashOptions(options)) return null;
+    if (persisted === null) return { report: null, watermark: null };
+    if (persisted.optionsHash !== hashOptions(options)) {
+      return { report: null, watermark: null };
+    }
     const currentWatermark = computeFileWatermark(options);
-    if (!watermarksMatch(persisted.files, currentWatermark)) return null;
-    return hydrateReport(persisted);
+    if (!watermarksMatch(persisted.files, currentWatermark)) {
+      return { report: null, watermark: currentWatermark };
+    }
+    return { report: hydrateReport(persisted), watermark: currentWatermark };
   }
 
-  #persistToDiskCache(options: ResolvedArchitectureOptions, report: ArchitectureReport): void {
+  #persistToDiskCache(
+    options: ResolvedArchitectureOptions,
+    report: ArchitectureReport,
+    currentWatermark: ReturnType<typeof computeFileWatermark> | null,
+  ): void {
     try {
-      const files = computeFileWatermark(options);
+      const files = currentWatermark ?? computeFileWatermark(options);
       writeDiskCache(options.projectRoot, report, files, hashOptions(options));
     } catch (error) {
       discardCacheWriteError(error);

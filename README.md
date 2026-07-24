@@ -39,6 +39,15 @@ safer-architecture check: 0 finding(s) across 0 file(s), 4 waiver(s), options fr
 `--json` emits the full report (diagnostics + waivers) for machine
 consumption; `--waivers` prints the suppression ledger with reasons.
 
+`check` writes a persistent report to
+`node_modules/.cache/safer-architecture-lsp/`, keyed by a content
+watermark over the project's sources, `package.json`, and `tsconfig`. A
+repeat run on an unchanged project reuses it instead of rebuilding the
+`ts.Program`, so **cache that directory in CI** to amortize cold cost. In
+a monorepo, run one `check` per package through a build tool's cache and
+parallelism (nx/turbo) rather than a sequential shell loop — each
+invocation is a whole-project analysis.
+
 ## Editor / agent setup
 
 The `serve` subcommand speaks LSP over stdio:

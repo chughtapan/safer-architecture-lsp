@@ -27,7 +27,7 @@ import {
 } from "vscode-languageserver/node.js";
 import { makeLspServer } from "./lsp-server.js";
 import { CONFIG_FILE_NAME, loadWorkspaceConfig } from "./config-loader.js";
-import { analyzeResolvedArchitecture } from "../analyzer/index.js";
+import { getOrCreateWorkspaceCache } from "../analyzer/project/cache/index.js";
 import {
   resolveArchitectureOptions,
   type ArchitectureReport,
@@ -147,7 +147,10 @@ function check(args: readonly string[]): void {
   }
 
   const options = resolveArchitectureOptions({ ...config.options, projectRoot: root });
-  const report = analyzeResolvedArchitecture(options);
+  // Go through the workspace cache so a repeat `check` on an unchanged
+  // project hits the persistent `node_modules/.cache` report instead of
+  // rebuilding the whole `ts.Program` and re-walking every export type.
+  const report = getOrCreateWorkspaceCache(root).get(options);
 
   const unavailable = report.diagnostics.filter(
     (d) => d.ruleId === "architecture-analysis-unavailable",

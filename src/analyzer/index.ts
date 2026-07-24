@@ -9,7 +9,11 @@ import path from "node:path";
 import type ts from "typescript";
 import { checkFolderShape } from "./folder-shape/index.js";
 import { checkInventoryBarrels } from "./exports/inventory-barrels.js";
-import { buildProjectGraph, checkFolderGraph } from "./imports/index.js";
+import {
+  buildProjectGraph,
+  checkFolderGraph,
+  type ProjectArchitectureGraph,
+} from "./imports/index.js";
 import { checkModuleShape } from "./module-shape/index.js";
 import {
   checkPackageExports,
@@ -83,7 +87,7 @@ export function analyzeResolvedArchitecture(
   const allDiagnostics = uniqueDiagnostics([
     ...checkPackageExports(packageJson, options, packageReportFile),
     ...checkInventoryBarrels(sourceFiles, options),
-    ...resolvePublicVendorTypeLeaks(program, packageJson, options),
+    ...resolvePublicVendorTypeLeaks(program, graph, packageJson, options),
     ...checkPublicSurface(graph, sourceFiles, packageJson, options),
     ...checkFolderGraph(graph, options),
     ...checkFolderShape(graph, options),
@@ -131,10 +135,13 @@ function indexByFile(
 
 function resolvePublicVendorTypeLeaks(
   program: ReturnType<typeof createProgram>,
+  graph: ProjectArchitectureGraph,
   packageJson: ReturnType<typeof emptyPackageJson>,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
-  return program === null ? [] : checkPublicVendorTypeLeaks(program, packageJson, options);
+  return program === null
+    ? []
+    : checkPublicVendorTypeLeaks(program, graph, packageJson, options);
 }
 
 function analyzeDirectiveComments(
