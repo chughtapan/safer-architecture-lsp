@@ -84,7 +84,7 @@ export function analyzeResolvedArchitecture(
     ...checkPackageExports(packageJson, options, packageReportFile),
     ...checkInventoryBarrels(sourceFiles, options),
     ...resolvePublicVendorTypeLeaks(program, packageJson, options),
-    ...checkPublicSurface(graph, sourceFiles, options),
+    ...checkPublicSurface(graph, sourceFiles, packageJson, options),
     ...checkFolderGraph(graph, options),
     ...checkFolderShape(graph, options),
     ...checkModuleShape(graph, options),

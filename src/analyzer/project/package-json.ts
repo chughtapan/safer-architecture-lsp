@@ -18,6 +18,7 @@ export function readPackageJson(projectRoot: string): PackageJson | null {
     main: readString(parsed.main),
     types: readString(parsed.types),
     exports: parsed.exports,
+    imports: readImportsMap(parsed.imports),
     dependencies: readStringMap(parsed.dependencies),
     devDependencies: readStringMap(parsed.devDependencies),
     peerDependencies: readStringMap(parsed.peerDependencies),
@@ -26,6 +27,7 @@ export function readPackageJson(projectRoot: string): PackageJson | null {
 
 export function emptyPackageJson(): PackageJson {
   return {
+    imports: new Map(),
     dependencies: new Map(),
     devDependencies: new Map(),
     peerDependencies: new Map(),
@@ -47,4 +49,28 @@ function readStringMap(value: unknown): ReadonlyMap<string, string> {
     (entry): entry is [string, string] => typeof entry[1] === "string",
   );
   return new Map(entries);
+}
+
+/**
+ * Parse the Node subpath-imports (`imports`) field into each `#` key's
+ * flat list of leaf target strings, descending through condition maps
+ * and arrays. Non-`#` keys are ignored (Node rejects them).
+ */
+function readImportsMap(value: unknown): ReadonlyMap<string, readonly string[]> {
+  if (!isJsonObject(value)) return new Map();
+
+  const entries: [string, readonly string[]][] = [];
+  for (const [key, target] of Object.entries(value)) {
+    if (!key.startsWith("#")) continue;
+    const leaves = collectImportLeafTargets(target);
+    if (leaves.length > 0) entries.push([key, leaves]);
+  }
+  return new Map(entries);
+}
+
+function collectImportLeafTargets(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(collectImportLeafTargets);
+  if (isJsonObject(value)) return Object.values(value).flatMap(collectImportLeafTargets);
+  return [];
 }

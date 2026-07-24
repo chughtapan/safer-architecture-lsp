@@ -7,5 +7,5 @@
 export {
   checkPublicVendorTypeLeaks,
   packageAllowedInPublicTypes,
-  packageNameFromSpecifier,
+  publicTypePackageForSpecifier,
 } from "./type-leaks.js";

@@ -70,6 +70,12 @@ export interface PackageJson {
   readonly types?: string;
   /** Modern `exports` map (left as raw JSON for downstream walking). */
   readonly exports?: unknown;
+  /**
+   * Node subpath `imports` map: each `#` key mapped to its flat list of
+   * leaf target strings. A key mapping to an in-package relative path is
+   * internal; one mapping to a bare specifier is a vendor edge.
+   */
+  readonly imports: ReadonlyMap<string, readonly string[]>;
   /** Runtime dependencies keyed by package name. */
   readonly dependencies: ReadonlyMap<string, string>;
   /** Dev-only dependencies keyed by package name. */
