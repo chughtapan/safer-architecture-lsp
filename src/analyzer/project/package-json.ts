@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { PackageJson } from "./diagnostics/index.js";
+import { collectExportsValue } from "./package-exports/index.js";
 
 interface JsonObject {
   readonly [key: string]: unknown;
@@ -34,7 +35,7 @@ export function emptyPackageJson(): PackageJson {
   };
 }
 
-export function isJsonObject(value: unknown): value is JsonObject {
+function isJsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
@@ -62,15 +63,8 @@ function readImportsMap(value: unknown): ReadonlyMap<string, readonly string[]> 
   const entries: [string, readonly string[]][] = [];
   for (const [key, target] of Object.entries(value)) {
     if (!key.startsWith("#")) continue;
-    const leaves = collectImportLeafTargets(target);
+    const leaves = collectExportsValue(target, key).map((entry) => entry.targetPath);
     if (leaves.length > 0) entries.push([key, leaves]);
   }
   return new Map(entries);
-}
-
-function collectImportLeafTargets(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.flatMap(collectImportLeafTargets);
-  if (isJsonObject(value)) return Object.values(value).flatMap(collectImportLeafTargets);
-  return [];
 }

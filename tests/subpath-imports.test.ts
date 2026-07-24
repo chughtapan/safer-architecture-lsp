@@ -75,3 +75,36 @@ it("still flags a `#` key that maps to a bare vendor package", () => {
   expect(forVendor.map((d) => d.ruleId)).toContain("no-public-vendor-type-leak");
   expect(forVendor.map((d) => d.ruleId)).toContain("require-boundary-owned-types");
 });
+
+it("still flags a wildcard `#` key that maps to a bare vendor package", () => {
+  fixture = makeFixture({
+    "package.json": JSON.stringify({
+      name: "my-pkg",
+      imports: { "#gen/*": "some-vendor/*" },
+      exports: { ".": "./index.ts" },
+    }),
+    "index.ts": 'export { Thing } from "#gen/x";\n',
+  });
+
+  const diagnostics = analyzeResolvedArchitecture(
+    resolveArchitectureOptions({ projectRoot: fixture.root }),
+  ).diagnostics;
+  const forVendor = diagnostics.filter((d) => d.message.includes("some-vendor"));
+  expect(forVendor.map((d) => d.ruleId)).toContain("no-public-vendor-type-leak");
+  expect(forVendor.map((d) => d.ruleId)).toContain("require-boundary-owned-types");
+});
+
+it("treats a wildcard `#` re-export as package-owned when it maps internally", () => {
+  fixture = makeFixture({
+    "package.json": JSON.stringify({
+      name: "my-pkg",
+      imports: { "#impl/*": "./impl/*" },
+      exports: { ".": "./index.ts" },
+    }),
+    "index.ts": 'export { Thing } from "#impl/x";\n',
+    "impl/x.ts": "export class Thing {}\n",
+  });
+
+  const ruleIds = ruleIdsFor(fixture.root);
+  for (const rule of SUBPATH_RULES) expect(ruleIds).not.toContain(rule);
+});
