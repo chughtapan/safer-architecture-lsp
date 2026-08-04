@@ -15,6 +15,7 @@ import path from "node:path";
 import ts from "typescript";
 import type {
   ArchitectureDiagnostic,
+  ArchitectureAnalysisSnapshot,
   ArchitectureWaiver,
   ArchitectureReport,
   ResolvedArchitectureOptions,
@@ -24,7 +25,7 @@ import { dependencyWatermarks } from "./dependency-watermark.js";
 // v2 bumped 2026-05-12: watermark now includes package.json, tsconfig
 // content, and analyzer version so dependency / config edits invalidate.
 // v1 caches read as null on next call.
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 const CACHE_DIR_SEGMENTS = ["node_modules", ".cache", "safer-architecture-lsp"];
 const CACHE_FILE = "report.json";
 
@@ -49,6 +50,7 @@ interface PersistedReport {
   readonly diagnostics: readonly ArchitectureDiagnostic[];
   readonly diagnosticsByFile: Record<string, readonly ArchitectureDiagnostic[]>;
   readonly waivers: readonly ArchitectureWaiver[];
+  readonly snapshot: ArchitectureAnalysisSnapshot;
 }
 
 function cacheFilePathFor(projectRoot: string): string {
@@ -102,6 +104,7 @@ export function writeDiskCache(
     diagnostics: report.diagnostics,
     diagnosticsByFile,
     waivers: report.waivers,
+    snapshot: report.snapshot,
   };
   fs.writeFileSync(filePath, JSON.stringify(payload));
 }
@@ -119,6 +122,7 @@ export function hydrateReport(persisted: PersistedReport): ArchitectureReport {
     diagnostics: persisted.diagnostics,
     diagnosticsByFile: byFile,
     waivers: persisted.waivers,
+    snapshot: persisted.snapshot,
   };
 }
 

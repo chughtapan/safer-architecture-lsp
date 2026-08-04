@@ -5,6 +5,7 @@
  */
 
 import type { ArchitectureRuleId } from "../../rule-ids.js";
+import type { ModuleResolutionSnapshotEntry } from "../source-model/graph-model.js";
 
 /** Severity reported by an architecture diagnostic. */
 export type ArchitectureSeverity = "error" | "warn";
@@ -58,6 +59,16 @@ export interface ArchitectureReport {
    * not waivers.
    */
   readonly waivers: readonly ArchitectureWaiver[];
+
+  /** Deterministic analysis inputs retained for cache/debug tooling. */
+  readonly snapshot: ArchitectureAnalysisSnapshot;
+}
+
+/** Stable, JSON-serializable facts captured while building a project graph. */
+export interface ArchitectureAnalysisSnapshot {
+  readonly projectRoot: string;
+  readonly sourceFiles: readonly string[];
+  readonly moduleResolutions: readonly ModuleResolutionSnapshotEntry[];
 }
 
 /** Parsed shape of the analyzer's view of `package.json`. */

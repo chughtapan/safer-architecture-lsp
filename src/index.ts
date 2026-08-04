@@ -18,6 +18,7 @@ export {
 } from "./analyzer/project/api/index.js";
 export type {
   ArchitectureDiagnostic,
+  ArchitectureAnalysisSnapshot,
   ArchitectureDiagnosticRuleId,
   ArchitectureReport,
   ArchitectureWaiver,

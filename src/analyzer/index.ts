@@ -111,6 +111,11 @@ export function analyzeResolvedArchitecture(
     diagnostics,
     diagnosticsByFile: indexByFile(diagnostics),
     waivers: directiveAnalysis.waivers,
+    snapshot: {
+      projectRoot: options.projectRoot,
+      sourceFiles: sourceFiles.map((sourceFile) => path.resolve(sourceFile.fileName)).sort(),
+      moduleResolutions: graph.moduleResolutions,
+    },
   };
 }
 

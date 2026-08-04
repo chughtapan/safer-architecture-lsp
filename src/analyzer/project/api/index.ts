@@ -25,6 +25,7 @@ export { emptyPackageJson, readPackageJson } from "../package-json.js";
 export { uniqueDiagnostics } from "../diagnostics/index.js";
 export type {
   ArchitectureDiagnostic,
+  ArchitectureAnalysisSnapshot,
   ArchitectureDiagnosticRuleId,
   ArchitectureReport,
   ArchitectureWaiver,

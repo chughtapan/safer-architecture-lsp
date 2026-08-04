@@ -9,6 +9,7 @@ export const ARCHITECTURE_DIAGNOSTIC_RULE_IDS = [
   "no-export-star-boundary",
   "no-folder-cycle",
   "no-module-cycle",
+  "no-workspace-package-cycle",
   "no-root-internal-cycle",
   "no-large-public-surface",
   "no-cross-domain-sibling-import",

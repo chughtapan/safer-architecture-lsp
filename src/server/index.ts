@@ -26,12 +26,12 @@ import {
   createConnection,
 } from "vscode-languageserver/node.js";
 import { makeLspServer } from "./lsp-server.js";
-import { CONFIG_FILE_NAME, loadWorkspaceConfig } from "./config-loader.js";
-import { getOrCreateWorkspaceCache } from "../analyzer/project/cache/index.js";
+import { CONFIG_FILE_NAME } from "./config-loader.js";
+import { WORKSPACE_FILE_NAME } from "../analyzer/workspace/index.js";
 import {
-  resolveArchitectureOptions,
-  type ArchitectureReport,
-} from "../analyzer/project/api/index.js";
+  analyzeWorkspaceRoot,
+  type WorkspaceArchitectureReport,
+} from "./workspace-report.js";
 
 const PACKAGE_VERSION: string = (
   createRequire(import.meta.url)("../../package.json") as { version: string }
@@ -47,7 +47,7 @@ USAGE
 
 COMMANDS
   check [root]   Analyze the project at root (default: cwd) once and exit.
-                 Reads ${CONFIG_FILE_NAME} at the root when present.
+                 Reads ${WORKSPACE_FILE_NAME}, or ${CONFIG_FILE_NAME} for a single project.
                  Exit codes: 0 clean · 1 findings · 2 could-not-analyze.
     --json       Emit the full report (diagnostics + waivers) as JSON.
     --waivers    List granted suppressions (file, rule, reason).
@@ -103,14 +103,14 @@ function parseCheckFlags(args: readonly string[]): CheckFlags | null {
   return { root, json, waivers };
 }
 
-function printFindings(report: ArchitectureReport, root: string): void {
+function printFindings(report: WorkspaceArchitectureReport, root: string): void {
   for (const d of report.diagnostics) {
     const rel = path.relative(root, d.file) || d.file;
     process.stdout.write(`${d.severity} ${d.ruleId} ${rel}: ${d.message}\n`);
   }
 }
 
-function printWaivers(report: ArchitectureReport, root: string): void {
+function printWaivers(report: WorkspaceArchitectureReport, root: string): void {
   if (report.waivers.length === 0) {
     process.stdout.write("no waivers granted\n");
     return;
@@ -136,21 +136,12 @@ function check(args: readonly string[]): void {
     process.exit(2);
   }
 
-  const config = loadWorkspaceConfig(root);
-  if (config.problem !== null) {
-    // CI must never silently fall back to defaults: a broken config is
-    // a failed run, not a differently-configured one.
-    process.stderr.write(
-      `cannot analyze: ${CONFIG_FILE_NAME} at ${root} is invalid: ${config.problem}\n`,
-    );
+  const result = analyzeWorkspaceRoot(root);
+  if (!result.ok) {
+    process.stderr.write(`cannot analyze: ${result.problem}\n`);
     process.exit(2);
   }
-
-  const options = resolveArchitectureOptions({ ...config.options, projectRoot: root });
-  // Go through the workspace cache so a repeat `check` on an unchanged
-  // project hits the persistent `node_modules/.cache` report instead of
-  // rebuilding the whole `ts.Program` and re-walking every export type.
-  const report = getOrCreateWorkspaceCache(root).get(options);
+  const report = result.report;
 
   const unavailable = report.diagnostics.filter(
     (d) => d.ruleId === "architecture-analysis-unavailable",
@@ -166,9 +157,21 @@ function check(args: readonly string[]): void {
         {
           root,
           version: PACKAGE_VERSION,
-          configSource: config.source,
+          manifestPath: report.manifestPath,
+          configSource: report.projects.length === 1
+            ? report.projects[0].configSource
+            : "workspace",
+          projects: report.projects.map((project) => ({
+            name: project.name,
+            root: project.root,
+            configSource: project.configSource,
+            diagnostics: project.report.diagnostics,
+            waivers: project.report.waivers,
+            snapshot: project.report.snapshot,
+          })),
           diagnostics: report.diagnostics,
           waivers: report.waivers,
+          snapshots: report.snapshots,
         },
         null,
         2,
@@ -179,7 +182,7 @@ function check(args: readonly string[]): void {
     if (waivers) printWaivers(report, root);
     const fileCount = report.diagnosticsByFile.size;
     process.stdout.write(
-      `safer-architecture check: ${report.diagnostics.length} finding(s) across ${fileCount} file(s), ${report.waivers.length} waiver(s), options from ${config.source} — ${root}\n`,
+      `safer-architecture check: ${report.diagnostics.length} finding(s) across ${fileCount} file(s), ${report.waivers.length} waiver(s), ${report.projects.length} project(s), options from ${report.projects.length === 1 ? report.projects[0].configSource : "workspace"} — ${root}\n`,
     );
   }
   process.exit(report.diagnostics.length > 0 ? 1 : 0);
