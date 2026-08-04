@@ -25,13 +25,21 @@ export function checkPublicVendorTypeLeaks(
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   const checker = program.getTypeChecker();
+  const exportedTypePackages = new Map<ts.Type, ReadonlySet<string>>();
   const mayReachExternal = buildExternalTypeReach(program, graph, (specifier) =>
     publicTypePackageForSpecifier(specifier, packageJson),
   );
   const diagnostics = publicApiSourceFiles(program, packageJson, options).flatMap(
     (sourceFile) => [
       ...externalReExportDiagnostics(sourceFile, packageJson, options),
-      ...exportedSignatureDiagnostics(checker, sourceFile, packageJson, options, mayReachExternal),
+      ...exportedSignatureDiagnostics(
+        checker,
+        sourceFile,
+        packageJson,
+        options,
+        mayReachExternal,
+        exportedTypePackages,
+      ),
     ],
   );
 
@@ -168,6 +176,7 @@ function exportedSignatureDiagnostics(
   packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
   mayReachExternal: (declarationFile: ts.SourceFile) => boolean,
+  exportedTypePackages: Map<ts.Type, ReadonlySet<string>>,
 ): readonly ArchitectureDiagnostic[] {
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
   if (!moduleSymbol) return [];
@@ -186,6 +195,7 @@ function exportedSignatureDiagnostics(
       exportedType,
       declaration,
       options,
+      exportedTypePackages,
     );
 
     return [...leakedPackages].flatMap((packageName) => [
@@ -252,7 +262,11 @@ function externalPackagesFromType(
   type: ts.Type,
   location: ts.Node,
   options: ResolvedArchitectureOptions,
+  exportedTypePackages: Map<ts.Type, ReadonlySet<string>>,
 ): ReadonlySet<string> {
+  const cached = exportedTypePackages.get(type);
+  if (cached !== undefined) return cached;
+
   const packages = new Set<string>();
   const seenTypes = new Set<ts.Type>();
 
@@ -272,6 +286,7 @@ function externalPackagesFromType(
 
   const context = { checker, location, visit };
   visit(type, 0);
+  exportedTypePackages.set(type, packages);
   return packages;
 }
 
