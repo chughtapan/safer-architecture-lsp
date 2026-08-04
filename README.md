@@ -32,7 +32,7 @@ tsconfig). It always prints a summary line, so an empty result is
 distinguishable from a run that never happened:
 
 ```
-safer-architecture check: 0 finding(s) across 0 file(s), 4 waiver(s), options from file — /repo
+safer-architecture check: 0 finding(s) across 0 file(s), 4 waiver(s), 1 project(s), options from file — /repo
 ```
 
 `--json` emits the merged report (projects, diagnostics, waivers, and
@@ -82,16 +82,19 @@ reference. Hosts that cannot run two servers for one file extension can
 front this server with the bundled `safer-lsp-proxy` multiplexer
 alongside `typescript-language-server`: the first backend in its config
 is primary, and a sidecar crash never takes the primary down.
+See the [LSP server guide](./docs/lsp.md) for workspace discovery,
+diagnostic lifecycle, and teardown behavior.
 
 Verify it's alive: stderr logs one line per workspace registration and
 per publish (`published N finding(s) across M file(s) … in Xms`).
 
 ## Configuration
 
-Put `safer-architecture.config.json` at the workspace root. It is
-schema-validated; an invalid file fails `check` runs loudly and surfaces
-as an error diagnostic in the editor (with defaults applied). Edits
-hot-reload the workspace. The knobs you'll actually touch first:
+Put `safer-architecture.config.json` at the project root (each listed package
+has its own file in an explicit workspace). It is schema-validated; an invalid
+file makes `check` exit without analysis and surfaces as an error diagnostic in
+the editor, where defaults keep diagnostics available while you repair it.
+Edits hot-reload the affected project. The knobs you'll actually touch first:
 
 ```jsonc
 {
@@ -189,6 +192,10 @@ for (const d of report.diagnostics) console.log(d.ruleId, d.file, d.message);
 for (const w of report.waivers) console.log("waived", w.ruleId, w.reason);
 ```
 
+The exported report types include deterministic analysis snapshots, and the
+exported option types include domain definitions, ownership overrides, and
+composition roots for typed configuration builders.
+
 ## Scope and limits (read before adopting)
 
 - Module edges use TypeScript's cached resolver, including `paths` and package
@@ -218,6 +225,7 @@ for (const w of report.waivers) console.log("waived", w.ruleId, w.reason);
 npm install
 npm run build   # tsc → dist/
 npm test        # vitest: analyzer fixtures, CLI contract, proxy, full LSP session
+npm run test:coverage # the production-source coverage ratchet
 npm run lint    # knip
 node dist/server/index.js check .   # the dogfood gate CI enforces
 ```
