@@ -6,6 +6,7 @@ export interface LocalModuleEdge {
   readonly kind: ModuleEdgeKind;
   readonly typeOnly: boolean;
   readonly specifier: string;
+  readonly sideEffectOnly: boolean;
 }
 
 export interface ExternalModuleEdge {

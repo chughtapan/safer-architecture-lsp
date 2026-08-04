@@ -8,6 +8,7 @@
 import path from "node:path";
 import type ts from "typescript";
 import { checkFolderShape } from "./folder-shape/index.js";
+import { domainArchitectureDiagnostics } from "./domains/index.js";
 import { checkInventoryBarrels } from "./exports/inventory-barrels.js";
 import {
   buildProjectGraph,
@@ -97,6 +98,7 @@ export function analyzeResolvedArchitecture(
     ...resolvePublicVendorTypeLeaks(program, graph, packageJson, options),
     ...checkPublicSurface(graph, sourceFiles, packageJson, options),
     ...moduleCycleDiagnostics(graph),
+    ...domainArchitectureDiagnostics(graph, options),
     ...checkFolderGraph(graph, options),
     ...checkFolderShape(graph, options),
     ...checkModuleShape(graph, options),

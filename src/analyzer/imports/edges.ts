@@ -18,6 +18,7 @@ interface SpecifierEdgeContext {
   readonly typeOnly: boolean;
   readonly kind: ModuleEdgeKind;
   readonly resolver: CachedModuleResolver;
+  readonly sideEffectOnly: boolean;
 }
 
 export function collectModuleEdges(
@@ -47,6 +48,7 @@ function specifierEdgeContext(
       typeOnly: importDeclarationIsTypeOnly(statement),
       kind: "import",
       resolver,
+      sideEffectOnly: statement.importClause === undefined,
     };
   }
   if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier) return null;
@@ -56,6 +58,7 @@ function specifierEdgeContext(
     typeOnly: exportDeclarationIsTypeOnly(statement),
     kind: "reexport",
     resolver,
+    sideEffectOnly: false,
   };
 }
 
@@ -88,6 +91,7 @@ function localModuleEdge(
     kind: context.kind,
     typeOnly: context.typeOnly,
     specifier,
+    sideEffectOnly: context.sideEffectOnly,
   };
 }
 

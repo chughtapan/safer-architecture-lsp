@@ -23,6 +23,9 @@ export type {
   ArchitectureReport,
   ArchitectureWaiver,
   ArchitectureSeverity,
+  CompositionRoot,
+  DomainDefinition,
+  DomainOwnership,
   LayerDefinition,
   ResolvedArchitectureOptions,
 } from "./analyzer/project/api/index.js";

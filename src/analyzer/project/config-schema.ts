@@ -84,6 +84,33 @@ const LayerDefinition = Schema.Struct({
 });
 export type LayerDefinition = typeof LayerDefinition.Type;
 
+const DomainDefinition = Schema.Struct({
+  name: NonEmptyString.annotations({ description: "Stable domain identifier used in diagnostics." }),
+  roots: Schema.NonEmptyArray(NonEmptyString).annotations({
+    description: "Project-relative file or directory roots whose production modules belong to this domain.",
+  }),
+  entrypoints: Schema.NonEmptyArray(NonEmptyString).annotations({
+    description: "Project-relative public boundary paths other domains may import.",
+  }),
+  reason: NonEmptyString.annotations({ description: "Why this domain boundary exists." }),
+});
+export type DomainDefinition = typeof DomainDefinition.Type;
+
+const DomainOwnership = Schema.Struct({
+  path: NonEmptyString.annotations({ description: "Project-relative file or directory path." }),
+  domain: NonEmptyString.annotations({ description: "Domain that explicitly owns this path." }),
+  reason: NonEmptyString.annotations({ description: "Why inferred root ownership is overridden." }),
+});
+export type DomainOwnership = typeof DomainOwnership.Type;
+
+const CompositionRoot = Schema.Struct({
+  path: NonEmptyString.annotations({
+    description: "Project-relative file or directory allowed to wire multiple domains together.",
+  }),
+  reason: NonEmptyString.annotations({ description: "Why dependency composition belongs at this edge." }),
+});
+export type CompositionRoot = typeof CompositionRoot.Type;
+
 const FolderChildLimitOverride = Schema.Struct({
   folder: NonEmptyString.annotations({
     description: "Folder path relative to src, or '.' for the source root.",
@@ -223,6 +250,16 @@ const ArchitectureOptionsSchema = Schema.Struct({
 
   layers: Schema.Array(LayerDefinition).pipe(
     Schema.optionalWith({ default: (): ReadonlyArray<LayerDefinition> => [] }),
+  ),
+
+  domains: Schema.Array(DomainDefinition).pipe(
+    Schema.optionalWith({ default: (): ReadonlyArray<DomainDefinition> => [] }),
+  ),
+  domainOwnership: Schema.Array(DomainOwnership).pipe(
+    Schema.optionalWith({ default: (): ReadonlyArray<DomainOwnership> => [] }),
+  ),
+  compositionRoots: Schema.Array(CompositionRoot).pipe(
+    Schema.optionalWith({ default: (): ReadonlyArray<CompositionRoot> => [] }),
   ),
 
   packageRuntime: PackageRuntime.pipe(

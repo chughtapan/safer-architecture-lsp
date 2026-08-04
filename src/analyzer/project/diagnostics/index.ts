@@ -11,6 +11,9 @@ import type { ModuleResolutionSnapshotEntry } from "../source-model/graph-model.
 export type ArchitectureSeverity = "error" | "warn";
 
 export type {
+  CompositionRoot,
+  DomainDefinition,
+  DomainOwnership,
   LayerDefinition,
 } from "../config-schema.js";
 

@@ -59,8 +59,75 @@ function decodeOrThrow(raw: unknown): ArchitectureOptions {
       if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
         decodedCache.set(raw, parsed);
       }
+      validateDomainConfiguration(parsed);
       return parsed;
     },
+  });
+}
+
+function validateDomainConfiguration(options: ArchitectureOptions): void {
+  const names = new Set<string>();
+  const roots = new Map<string, string>();
+  for (const domain of options.domains) {
+    if (names.has(domain.name)) domainConfigurationError(`duplicate domain name '${domain.name}'`);
+    names.add(domain.name);
+    for (const root of domain.roots) {
+      const normalized = validateRelativeArchitecturePath(root, `domain '${domain.name}' root`);
+      const existing = roots.get(normalized);
+      if (existing !== undefined) {
+        domainConfigurationError(`domain root '${root}' is owned by both '${existing}' and '${domain.name}'`);
+      }
+      roots.set(normalized, domain.name);
+    }
+    for (const entrypoint of domain.entrypoints) {
+      const normalized = validateRelativeArchitecturePath(
+        entrypoint,
+        `domain '${domain.name}' entrypoint`,
+      );
+      if (!domain.roots.some((root) => pathContains(normalizeConfigPath(root), normalized))) {
+        domainConfigurationError(
+          `domain '${domain.name}' entrypoint '${entrypoint}' is outside its configured roots`,
+        );
+      }
+    }
+  }
+  for (const ownership of options.domainOwnership) {
+    validateRelativeArchitecturePath(ownership.path, "domain ownership path");
+    if (!names.has(ownership.domain)) {
+      domainConfigurationError(
+        `domain ownership path '${ownership.path}' names unknown domain '${ownership.domain}'`,
+      );
+    }
+  }
+  for (const composition of options.compositionRoots) {
+    validateRelativeArchitecturePath(composition.path, "composition root");
+  }
+  if (options.domains.length === 0 &&
+      (options.domainOwnership.length > 0 || options.compositionRoots.length > 0)) {
+    domainConfigurationError("domainOwnership and compositionRoots require at least one domain");
+  }
+}
+
+function validateRelativeArchitecturePath(value: string, label: string): string {
+  const normalized = normalizeConfigPath(value);
+  if (path.isAbsolute(value) || normalized === ".." || normalized.startsWith("../")) {
+    domainConfigurationError(`${label} '${value}' must stay inside the project root`);
+  }
+  return normalized;
+}
+
+function normalizeConfigPath(value: string): string {
+  return value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "");
+}
+
+function pathContains(root: string, candidate: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}/`);
+}
+
+function domainConfigurationError(message: string): never {
+  throw new ArchitectureOptionsError({
+    message: `Invalid safer-architecture options:\n  • ${message}`,
+    issues: [{ path: ["domains"], message }],
   });
 }
 
