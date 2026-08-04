@@ -9,6 +9,37 @@
   ],
   "facadeFiles": [
     { "file": "analyzer/project/source-files.ts", "reason": "deliberate program-construction facade: the three delivery surfaces need createProgram/programHealth without the full project barrel." },
-    { "file": "server/workspace-engine.ts", "reason": "deliberate engine facade: registry and lsp-server consume the engine contract directly; an index.ts would be a pass-through." }
+    { "file": "server/workspace-engine.ts", "reason": "deliberate engine facade: registry and lsp-server consume the engine contract directly; an index.ts would be a pass-through." },
+    { "file": "analyzer/project/package-json.ts", "reason": "package metadata parsing is a focused boundary reused by project and workspace discovery without widening the project API." }
+  ],
+  "domains": [
+    {
+      "name": "analyzer",
+      "roots": ["src/analyzer"],
+      "entrypoints": [
+        "src/analyzer/index.ts",
+        "src/analyzer/project/api/index.ts",
+        "src/analyzer/project/cache/index.ts",
+        "src/analyzer/workspace/index.ts"
+      ],
+      "reason": "one deterministic analysis core shared by every delivery surface."
+    },
+    {
+      "name": "server",
+      "roots": ["src/server"],
+      "entrypoints": ["src/server/lsp-server.ts"],
+      "reason": "CLI and LSP delivery own protocol and workspace lifecycle concerns."
+    },
+    {
+      "name": "proxy",
+      "roots": ["src/proxy"],
+      "entrypoints": ["src/proxy/multiplexer.ts"],
+      "reason": "the optional LSP multiplexer is isolated from analyzer policy."
+    }
+  ],
+  "compositionRoots": [
+    { "path": "src/index.ts", "reason": "published library API composition." },
+    { "path": "src/server/index.ts", "reason": "CLI process composition and dispatch." },
+    { "path": "src/proxy/index.ts", "reason": "proxy process composition and dispatch." }
   ]
 }

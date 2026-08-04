@@ -1,6 +1,34 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.3.0 (2026-08-04)
+
+- Add deterministic file, domain, and workspace-package SCC diagnostics with
+  canonical cycle paths.
+- Resolve TypeScript `paths` and package `imports` aliases through one cached
+  module resolver per project graph; persist a deterministic resolution
+  snapshot in cached, CLI, and merged workspace reports.
+- Add explicit `safer-architecture.workspace.json` support to both CLI and LSP.
+  Invalid manifests block coverage; each package keeps an independent config,
+  program, watcher, and cache.
+- Add opt-in strict CUPID domain enforcement: inferred and explicit ownership,
+  reason-carrying composition roots, boundary entrypoints, domain-cycle,
+  boundary-bypass, and cross-domain side-effect rules.
+
+## 0.2.1 (2026-08-04)
+
+- Cache external-package type walks across public entrypoints, fixing the
+  Effect-heavy cold path without changing per-entrypoint findings.
+- Add a global production-source coverage gate and a real-protocol performance
+  regression fixture.
+- Verify the Moltzap protocol package under a 4 GB heap stays below 10 seconds
+  and 1 GB RSS.
+
+## 0.2.0 (2026-07-22)
+
+- Publish the first stable CLI/LSP contract with persistent report caching,
+  sound public-type prefiltering, and deterministic exit semantics.
+
+## 0.1.0 (2026-07-22)
 
 First publish. Extracted from the brief repo's architecture sidecar and
 reworked into a standalone tool.

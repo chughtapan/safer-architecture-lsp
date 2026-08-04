@@ -1,3 +1,4 @@
+// safer-arch-ignore no-large-folder: analyzer children are intentionally one folder per analysis concern and already converge on the single analyzer facade.
 import ts from "typescript";
 import {
   ARCHITECTURE_DIAGNOSTIC_RULE_IDS,

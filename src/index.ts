@@ -1,3 +1,5 @@
+// safer-arch-ignore no-folder-cycle: project API type barrels intentionally share diagnostic and source-model types; splitting these type-only contracts would duplicate the public vocabulary.
+// safer-arch-ignore no-package-mesh: the analyzer is one domain with specialized passes behind a single API; folder count reflects rule families, not independently coupled packages.
 /**
  * @file Public API barrel. Exposes the analyzer entry point, the
  * architecture options schema surface, the rule-id registry, and the

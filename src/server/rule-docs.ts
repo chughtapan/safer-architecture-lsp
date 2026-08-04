@@ -5,7 +5,7 @@
  * rule ids themselves, so the href is derivable and cannot drift.
  */
 
-import type { ArchitectureRuleId } from "../analyzer/rule-ids.js";
+import type { ArchitectureRuleId } from "../index.js";
 
 const RULE_DOCS_BASE =
   "https://github.com/chughtapan/safer-architecture-lsp/blob/main/docs/rules.md";

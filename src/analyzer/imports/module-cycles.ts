@@ -1,3 +1,4 @@
+// safer-arch-ignore no-trivial-sink-file: module SCC policy stays isolated from graph construction so the typed graph primitive remains reusable for domains and packages.
 import path from "node:path";
 import {
   canonicalCyclePath,

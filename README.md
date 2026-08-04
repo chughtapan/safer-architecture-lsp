@@ -16,8 +16,7 @@ the diagnostic while authoring, and the escape hatch is one line it must
 justify: that inline feedback loop, with a queryable waiver ledger, is
 the wedge.
 
-> **Status: 0.1.0.** Rule heuristics are young and tuned on small
-> single-package repos; expect to configure. See the 0.x stability
+> **Status: 0.x.** Rule heuristics are young; expect to configure. See the 0.x stability
 > policy in [CHANGELOG.md](./CHANGELOG.md).
 
 ## CI in two minutes
@@ -36,17 +35,28 @@ distinguishable from a run that never happened:
 safer-architecture check: 0 finding(s) across 0 file(s), 4 waiver(s), options from file — /repo
 ```
 
-`--json` emits the full report (diagnostics + waivers) for machine
-consumption; `--waivers` prints the suppression ledger with reasons.
+`--json` emits the merged report (projects, diagnostics, waivers, and
+deterministic analysis snapshots) for machine consumption; `--waivers`
+prints the suppression ledger with reasons.
 
 `check` writes a persistent report to
 `node_modules/.cache/safer-architecture-lsp/`, keyed by a content
 watermark over the project's sources, `package.json`, and `tsconfig`. A
 repeat run on an unchanged project reuses it instead of rebuilding the
-`ts.Program`, so **cache that directory in CI** to amortize cold cost. In
-a monorepo, run one `check` per package through a build tool's cache and
-parallelism (nx/turbo) rather than a sequential shell loop — each
-invocation is a whole-project analysis.
+`ts.Program`, so **cache that directory in CI** to amortize cold cost.
+
+For a monorepo, add an explicit `safer-architecture.workspace.json` at
+the root. Paths are literal and relative—there is no implicit discovery
+or glob expansion:
+
+```json
+{ "packages": ["packages/api", "packages/web"] }
+```
+
+Every listed directory must exist and have a unique, non-empty `package.json`
+name. The CLI and LSP analyze each package with its own config/cache, merge the
+reports, and reject runtime/peer dependency cycles. An invalid manifest blocks
+the workspace loudly.
 
 ## Editor / agent setup
 
@@ -111,6 +121,36 @@ that control it. This repository's own
 working example: CI runs `check .` on this codebase and fails on any
 unwaived finding.
 
+### CUPID domain enforcement
+
+Domain enforcement is opt-in and strict once `domains` is non-empty:
+
+```json
+{
+  "domains": [{
+    "name": "orders",
+    "roots": ["src/orders"],
+    "entrypoints": ["src/orders/index.ts"],
+    "reason": "owns the order lifecycle"
+  }],
+  "domainOwnership": [{
+    "path": "src/legacy-orders",
+    "domain": "orders",
+    "reason": "migration ownership is explicit"
+  }],
+  "compositionRoots": [{
+    "path": "src/bootstrap.ts",
+    "reason": "application wiring edge"
+  }]
+}
+```
+
+Production modules must be owned by an inferred domain root, an explicit
+ownership override, or a reason-carrying composition root. Cross-domain imports
+must target destination entrypoints; domain dependencies must be acyclic; and
+side-effect-only cross-domain imports are restricted to composition roots. See
+[CUPID enforcement](./docs/cupid.md).
+
 ## Rules
 
 The complete reference — what each rule flags, why, its controlling
@@ -151,10 +191,10 @@ for (const w of report.waivers) console.log("waived", w.ruleId, w.reason);
 
 ## Scope and limits (read before adopting)
 
-- The import graph resolves **relative imports** within one package.
-  `tsconfig` path aliases, workspace packages, and project references
-  are not yet modeled (tracked in TODOS) — in a monorepo, run one
-  `check` per package root.
+- Module edges use TypeScript's cached resolver, including `paths` and package
+  `imports` aliases. Workspace package topology comes from declared runtime and
+  peer dependencies; cross-package source/project-reference imports remain
+  scoped to each package's TypeScript project.
 - Analysis is save-time in the editor; live keystroke-level diagnostics
   are a follow-up.
 - A tsconfig found above the workspace root is scoped to the
