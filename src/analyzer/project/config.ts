@@ -56,10 +56,12 @@ function decodeOrThrow(raw: unknown): ArchitectureOptions {
       });
     },
     onRight: (parsed) => {
+      // Validate before caching so a rejected object cannot bypass the
+      // semantic checks when the same reference is resolved again.
+      validateDomainConfiguration(parsed);
       if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
         decodedCache.set(raw, parsed);
       }
-      validateDomainConfiguration(parsed);
       return parsed;
     },
   });
@@ -68,6 +70,8 @@ function decodeOrThrow(raw: unknown): ArchitectureOptions {
 function validateDomainConfiguration(options: ArchitectureOptions): void {
   const names = new Set<string>();
   const roots = new Map<string, string>();
+  const ownershipPaths = new Map<string, string>();
+  const compositionPaths = new Set<string>();
   for (const domain of options.domains) {
     if (names.has(domain.name)) domainConfigurationError(`duplicate domain name '${domain.name}'`);
     names.add(domain.name);
@@ -79,11 +83,18 @@ function validateDomainConfiguration(options: ArchitectureOptions): void {
       }
       roots.set(normalized, domain.name);
     }
+    const entrypoints = new Set<string>();
     for (const entrypoint of domain.entrypoints) {
       const normalized = validateRelativeArchitecturePath(
         entrypoint,
         `domain '${domain.name}' entrypoint`,
       );
+      if (entrypoints.has(normalized)) {
+        domainConfigurationError(
+          `domain '${domain.name}' has duplicate entrypoint '${entrypoint}'`,
+        );
+      }
+      entrypoints.add(normalized);
       if (!domain.roots.some((root) => pathContains(normalizeConfigPath(root), normalized))) {
         domainConfigurationError(
           `domain '${domain.name}' entrypoint '${entrypoint}' is outside its configured roots`,
@@ -92,15 +103,26 @@ function validateDomainConfiguration(options: ArchitectureOptions): void {
     }
   }
   for (const ownership of options.domainOwnership) {
-    validateRelativeArchitecturePath(ownership.path, "domain ownership path");
+    const normalized = validateRelativeArchitecturePath(ownership.path, "domain ownership path");
     if (!names.has(ownership.domain)) {
       domainConfigurationError(
         `domain ownership path '${ownership.path}' names unknown domain '${ownership.domain}'`,
       );
     }
+    const existing = ownershipPaths.get(normalized);
+    if (existing !== undefined) {
+      domainConfigurationError(
+        `domain ownership path '${ownership.path}' is assigned more than once (${existing}, ${ownership.domain})`,
+      );
+    }
+    ownershipPaths.set(normalized, ownership.domain);
   }
   for (const composition of options.compositionRoots) {
-    validateRelativeArchitecturePath(composition.path, "composition root");
+    const normalized = validateRelativeArchitecturePath(composition.path, "composition root");
+    if (compositionPaths.has(normalized)) {
+      domainConfigurationError(`duplicate composition root '${composition.path}'`);
+    }
+    compositionPaths.add(normalized);
   }
   if (options.domains.length === 0 &&
       (options.domainOwnership.length > 0 || options.compositionRoots.length > 0)) {
@@ -109,19 +131,25 @@ function validateDomainConfiguration(options: ArchitectureOptions): void {
 }
 
 function validateRelativeArchitecturePath(value: string, label: string): string {
+  const slashPath = value.replaceAll("\\", "/");
   const normalized = normalizeConfigPath(value);
-  if (path.isAbsolute(value) || normalized === ".." || normalized.startsWith("../")) {
+  if (
+    path.isAbsolute(value) ||
+    slashPath.split("/").includes("..") ||
+    normalized === ".." ||
+    normalized.startsWith("../")
+  ) {
     domainConfigurationError(`${label} '${value}' must stay inside the project root`);
   }
   return normalized;
 }
 
 function normalizeConfigPath(value: string): string {
-  return value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "");
+  return path.posix.normalize(value.replaceAll("\\", "/"));
 }
 
 function pathContains(root: string, candidate: string): boolean {
-  return candidate === root || candidate.startsWith(`${root}/`);
+  return root === "." || candidate === root || candidate.startsWith(`${root}/`);
 }
 
 function domainConfigurationError(message: string): never {

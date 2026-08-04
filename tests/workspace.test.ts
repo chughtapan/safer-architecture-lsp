@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -25,6 +25,21 @@ it("rejects workspace package roots that escape the explicit manifest", () => {
   const result = discoverWorkspace(root);
   expect(result.ok).toBe(false);
   if (!result.ok) expect(result.problem).toContain("escapes the workspace");
+});
+
+it("rejects workspace package roots that escape through a symlink", () => {
+  const root = workspaceRoot();
+  const outside = workspaceRoot();
+  writePackage(outside, ".", "@fixture/outside");
+  mkdirSync(path.join(root, "packages"), { recursive: true });
+  symlinkSync(outside, path.join(root, "packages/outside"), "dir");
+  writeFileSync(
+    path.join(root, "safer-architecture.workspace.json"),
+    JSON.stringify({ packages: ["packages/outside"] }),
+  );
+  const result = discoverWorkspace(root);
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.problem).toContain("through a symlink");
 });
 
 it.each([
@@ -57,6 +72,13 @@ it("rejects invalid, unnamed, duplicate-root, and duplicate-name packages", () =
   const unnamed = discoverWorkspace(unnamedRoot);
   expect(unnamed.ok).toBe(false);
   if (!unnamed.ok) expect(unnamed.problem).toContain("non-empty name");
+
+  const blankRoot = workspaceRoot();
+  writePackage(blankRoot, "packages/a", "   ");
+  writeFileSync(path.join(blankRoot, "safer-architecture.workspace.json"), JSON.stringify({ packages: ["packages/a"] }));
+  const blank = discoverWorkspace(blankRoot);
+  expect(blank.ok).toBe(false);
+  if (!blank.ok) expect(blank.problem).toContain("non-empty name");
 
   const duplicateRoot = workspaceRoot();
   writePackage(duplicateRoot, "packages/a", "@fixture/a");

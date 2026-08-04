@@ -157,11 +157,11 @@ it("expands an explicit workspace and publishes package-cycle diagnostics", asyn
     include: ["src/**/*.ts"],
   });
   fixture = makeFixture({
-    "packages/a/src/index.ts": "export const a = 1;\n",
     "packages/a/tsconfig.json": packageTsconfig,
     "packages/a/package.json": JSON.stringify({
       name: "@fixture/a",
       dependencies: { "@fixture/b": "workspace:*" },
+      exports: { "./*": "./src/*.ts" },
     }),
     "packages/b/src/index.ts": "export const b = 1;\n",
     "packages/b/tsconfig.json": packageTsconfig,
@@ -200,5 +200,7 @@ it("expands an explicit workspace and publishes package-cycle diagnostics", asyn
         diagnostic.code === "no-workspace-package-cycle")),
     "workspace package cycle diagnostic",
   );
-  expect(cycle).toBeDefined();
+  expect(cycle?.params?.diagnostics?.map((diagnostic) => diagnostic.code)).toEqual(
+    expect.arrayContaining(["no-internal-subpath-export", "no-workspace-package-cycle"]),
+  );
 }, 180_000);

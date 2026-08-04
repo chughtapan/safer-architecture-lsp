@@ -48,7 +48,7 @@ function specifierEdgeContext(
       typeOnly: importDeclarationIsTypeOnly(statement),
       kind: "import",
       resolver,
-      sideEffectOnly: statement.importClause === undefined,
+      sideEffectOnly: importDeclarationIsSideEffectOnly(statement),
     };
   }
   if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier) return null;
@@ -60,6 +60,15 @@ function specifierEdgeContext(
     resolver,
     sideEffectOnly: false,
   };
+}
+
+function importDeclarationIsSideEffectOnly(statement: ts.ImportDeclaration): boolean {
+  if (statement.importClause === undefined) return true;
+  const { name, namedBindings } = statement.importClause;
+  return name === undefined &&
+    namedBindings !== undefined &&
+    ts.isNamedImports(namedBindings) &&
+    namedBindings.elements.length === 0;
 }
 
 function collectSpecifierEdge(

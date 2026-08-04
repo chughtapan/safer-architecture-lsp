@@ -33,6 +33,15 @@ export type WorkspaceDiscovery =
 
 export function discoverWorkspace(workspaceRoot: string): WorkspaceDiscovery {
   const root = path.resolve(workspaceRoot);
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = fs.realpathSync(root);
+  } catch (error) {
+    return invalid(
+      path.join(root, WORKSPACE_FILE_NAME),
+      `workspace root cannot be resolved: ${errorMessage(error)}`,
+    );
+  }
   const manifestPath = path.join(root, WORKSPACE_FILE_NAME);
   if (!fs.existsSync(manifestPath)) {
     return singleProjectWorkspace(root)(projectAt(root, false, manifestPath));
@@ -63,20 +72,41 @@ export function discoverWorkspace(workspaceRoot: string): WorkspaceDiscovery {
     if (path.isAbsolute(relativeRoot)) {
       return invalid(manifestPath, `package root must be relative: ${relativeRoot}`);
     }
-    const projectRoot = path.resolve(root, relativeRoot);
-    const relative = path.relative(root, projectRoot);
+    const requestedRoot = path.resolve(root, relativeRoot);
+    const relative = path.relative(root, requestedRoot);
     if (relative.startsWith(`..${path.sep}`) || relative === "..") {
       return invalid(manifestPath, `package root escapes the workspace: ${relativeRoot}`);
     }
-    if (roots.has(projectRoot)) {
+    try {
+      if (!fs.statSync(requestedRoot).isDirectory()) {
+        return invalid(manifestPath, `package root is not a directory: ${requestedRoot}`);
+      }
+    } catch {
+      return invalid(manifestPath, `package root is not a directory: ${requestedRoot}`);
+    }
+    let realProjectRoot: string;
+    try {
+      realProjectRoot = fs.realpathSync(requestedRoot);
+    } catch (error) {
+      return invalid(
+        manifestPath,
+        `package root cannot be resolved: ${relativeRoot}: ${errorMessage(error)}`,
+      );
+    }
+    const canonicalRelative = path.relative(canonicalRoot, realProjectRoot);
+    if (canonicalRelative.startsWith(`..${path.sep}`) || canonicalRelative === "..") {
+      return invalid(manifestPath, `package root escapes the workspace through a symlink: ${relativeRoot}`);
+    }
+    if (roots.has(realProjectRoot)) {
       return invalid(manifestPath, `duplicate package root: ${relativeRoot}`);
     }
+    const projectRoot = requestedRoot;
     const project = projectAt(projectRoot, true, manifestPath);
     if (!project.ok) return project;
     if (names.has(project.project.name)) {
       return invalid(manifestPath, `duplicate package name: ${project.project.name}`);
     }
-    roots.add(projectRoot);
+    roots.add(realProjectRoot);
     names.add(project.project.name);
     projects.push(project.project);
   }
@@ -106,7 +136,7 @@ function projectAt(
   } catch (error) {
     return invalid(manifestPath, `invalid package.json at ${projectRoot}: ${errorMessage(error)}`);
   }
-  if (requirePackageName && packageJson?.name === undefined) {
+  if (requirePackageName && (packageJson?.name === undefined || packageJson.name.trim().length === 0)) {
     return invalid(manifestPath, `package.json at ${projectRoot} must have a non-empty name`);
   }
   const runtimeDependencies = packageJson === null

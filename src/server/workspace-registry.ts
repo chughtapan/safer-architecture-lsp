@@ -62,12 +62,13 @@ export interface WorkspaceRegistry {
 export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
   Effect.gen(function* () {
     const ref = yield* Ref.make<EngineMap>(new Map());
+    const mutex = yield* Effect.makeSemaphore(1);
 
     const register = (
       projectRoot: string,
       options?: ArchitectureOptionsInput,
     ): Effect.Effect<WorkspaceEngine, never, Scope.Scope> =>
-      Effect.gen(function* () {
+      mutex.withPermits(1)(Effect.gen(function* () {
         const map = yield* Ref.get(ref);
         const existing = map.get(projectRoot);
         if (existing !== undefined) return existing.engine;
@@ -82,16 +83,16 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
         );
         yield* Ref.update(ref, (m) => insertEntry(m, projectRoot, { engine, scope: child }));
         return engine;
-      });
+      }));
 
     const unregister = (projectRoot: string): Effect.Effect<void> =>
-      Effect.gen(function* () {
+      mutex.withPermits(1)(Effect.gen(function* () {
         const map = yield* Ref.get(ref);
         const entry = map.get(projectRoot);
         if (entry === undefined) return;
         yield* Ref.update(ref, (m) => removeEntry(m, projectRoot));
         yield* Scope.close(entry.scope, Exit.void);
-      });
+      }));
 
     const findByProjectRoot = (
       projectRoot: string,

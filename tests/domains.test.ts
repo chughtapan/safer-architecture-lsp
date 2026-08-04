@@ -59,10 +59,13 @@ it("reports domain SCCs, boundary bypasses, and cross-domain side effects", () =
       'import { charge } from "../billing/internal.js";\nexport const orders = charge;\n',
     "src/orders/register.ts":
       'import "../billing/register.js";\nexport const registered = true;\n',
+    "src/orders/empty-register.ts":
+      'import {} from "../billing/empty.js";\nexport const emptyRegistered = true;\n',
     "src/billing/index.ts":
       'import { orders } from "../orders/index.js";\nexport const billing = orders;\n',
     "src/billing/internal.ts": "export const charge = 1;\n",
     "src/billing/register.ts": "export const installed = true;\n",
+    "src/billing/empty.ts": "export const emptyInstalled = true;\n",
   });
   const report = analyzeResolvedArchitecture(
     resolveArchitectureOptions({ ...domainOptions, projectRoot: fixture.root }),
@@ -71,6 +74,7 @@ it("reports domain SCCs, boundary bypasses, and cross-domain side effects", () =
   expect(ids).toContain("no-domain-cycle");
   expect(ids).toContain("no-domain-boundary-bypass");
   expect(ids).toContain("no-cross-domain-side-effect");
+  expect(ids.filter((ruleId) => ruleId === "no-cross-domain-side-effect")).toHaveLength(2);
   expect(report.diagnostics.find(({ ruleId }) => ruleId === "no-domain-cycle")?.message)
     .toContain("billing -> orders -> billing");
 });

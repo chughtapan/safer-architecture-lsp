@@ -5,3 +5,4 @@ dist/
 *.log
 coverage/
 .claude/worktrees/
+.repos/effect

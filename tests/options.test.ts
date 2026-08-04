@@ -30,6 +30,39 @@ it("rejects an allowance entry missing its written reason", () => {
   ).toThrowError(/architecture options/i);
 });
 
+it("never caches options that fail semantic domain validation", () => {
+  const invalid = {
+    domains: [
+      { name: "orders", roots: ["src/orders"], entrypoints: ["src/orders/index.ts"], reason: "one" },
+      { name: "orders", roots: ["src/other"], entrypoints: ["src/other/index.ts"], reason: "two" },
+    ],
+  };
+  expect(() => resolveArchitectureOptions(invalid)).toThrow("duplicate domain name");
+  expect(() => resolveArchitectureOptions(invalid)).toThrow("duplicate domain name");
+});
+
+it("rejects traversing and conflicting domain paths", () => {
+  expect(() => resolveArchitectureOptions({
+    domains: [{
+      name: "orders",
+      roots: ["src/../orders"],
+      entrypoints: ["orders/index.ts"],
+      reason: "orders",
+    }],
+  })).toThrow("must stay inside the project root");
+
+  expect(() => resolveArchitectureOptions({
+    domains: [
+      { name: "orders", roots: ["src/orders"], entrypoints: ["src/orders/index.ts"], reason: "orders" },
+      { name: "billing", roots: ["src/billing"], entrypoints: ["src/billing/index.ts"], reason: "billing" },
+    ],
+    domainOwnership: [
+      { path: "src/legacy", domain: "orders", reason: "first" },
+      { path: "./src/legacy", domain: "billing", reason: "second" },
+    ],
+  })).toThrow("assigned more than once");
+});
+
 it("removes inert emit paths from the analysis compiler options", () => {
   const fixture = makeFixture({
     "tsconfig.json": JSON.stringify({

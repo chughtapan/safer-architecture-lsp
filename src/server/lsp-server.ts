@@ -72,16 +72,29 @@ interface ServerDeps {
    * root. Publishing a fresh report clears any URI that dropped out of
    * it, so fixed findings never leave stale squiggles behind.
    */
-  readonly published: Ref.Ref<ReadonlyMap<string, ReadonlySet<string>>>;
+  readonly published: Ref.Ref<
+    ReadonlyMap<string, ReadonlyMap<string, readonly Diagnostic[]>>
+  >;
 
   /** Project roots attached for each client workspace folder. */
   readonly workspaceProjects: Ref.Ref<ReadonlyMap<string, readonly string[]>>;
 
   /** Non-project diagnostics (workspace manifest and package graph), by workspace root. */
-  readonly workspacePublished: Ref.Ref<ReadonlyMap<string, ReadonlySet<string>>>;
+  readonly workspacePublished: Ref.Ref<
+    ReadonlyMap<string, ReadonlyMap<string, readonly Diagnostic[]>>
+  >;
 
   /** One config-file watcher per workspace root; survives engine reloads. */
   readonly configWatchers: Map<string, FSWatcher>;
+
+  /** Metadata paths currently attached to each watcher. */
+  readonly configWatcherPaths: Map<string, ReadonlySet<string>>;
+
+  /** Serialize detach/attach reloads so event bursts cannot leak child scopes. */
+  readonly reloadLocks: Map<string, Effect.Semaphore>;
+
+  /** Debounce metadata event bursts per workspace root. */
+  readonly reloadTimers: Map<string, ReturnType<typeof setTimeout>>;
 }
 
 const findEngineForUri = (
@@ -110,6 +123,20 @@ const sendDiagnostics = (
   Effect.sync(() => {
     const params: PublishDiagnosticsParams = { uri, diagnostics: [...diagnostics] };
     deps.connection.sendDiagnostics(params);
+  });
+
+const sendMergedDiagnostics = (
+  deps: ServerDeps,
+  uri: string,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const projectReports = yield* Ref.get(deps.published);
+    const workspaceReports = yield* Ref.get(deps.workspacePublished);
+    const diagnostics = [
+      ...projectReports.values(),
+      ...workspaceReports.values(),
+    ].flatMap((report) => report.get(uri) ?? []);
+    yield* sendDiagnostics(deps, uri, diagnostics);
   });
 
 /** A file-level error diagnostic built outside the analyzer (config problems, engine crashes). */
@@ -156,18 +183,14 @@ const publishWorkspace = (
       yield* Effect.sync(() => log(`analysis failed for ${root}: ${outcome.error.message}`));
     }
 
-    const previous = (yield* Ref.get(deps.published)).get(root) ?? new Set<string>();
-    for (const uri of previous) {
-      if (!nextUris.has(uri)) yield* sendDiagnostics(deps, uri, []);
-    }
-    for (const [uri, diagnostics] of nextUris) {
-      yield* sendDiagnostics(deps, uri, diagnostics);
-    }
+    const previous = (yield* Ref.get(deps.published)).get(root) ?? new Map();
+    const affectedUris = new Set([...previous.keys(), ...nextUris.keys()]);
     yield* Ref.update(deps.published, (map) => {
       const next = new Map(map);
-      next.set(root, new Set(nextUris.keys()));
+      next.set(root, nextUris);
       return next;
     });
+    for (const uri of affectedUris) yield* sendMergedDiagnostics(deps, uri);
     yield* Effect.sync(() => {
       if (outcome.ok) {
         log(
@@ -236,13 +259,13 @@ const attachProject = (
 /** Tear the workspace down and clear everything it ever published. */
 const detachProject = (deps: ServerDeps, root: string): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const previous = (yield* Ref.get(deps.published)).get(root) ?? new Set<string>();
-    for (const uri of previous) yield* sendDiagnostics(deps, uri, []);
+    const previous = (yield* Ref.get(deps.published)).get(root) ?? new Map();
     yield* Ref.update(deps.published, (map) => {
       const next = new Map(map);
       next.delete(root);
       return next;
     });
+    for (const uri of previous.keys()) yield* sendMergedDiagnostics(deps, uri);
     yield* deps.registry.unregister(root);
     yield* Effect.sync(() => log(`workspace ${root} detached`));
   });
@@ -254,18 +277,14 @@ const publishWorkspaceDiagnostics = (
   diagnosticsByUri: ReadonlyMap<string, readonly Diagnostic[]>,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const previous = (yield* Ref.get(deps.workspacePublished)).get(root) ?? new Set<string>();
-    for (const uri of previous) {
-      if (!diagnosticsByUri.has(uri)) yield* sendDiagnostics(deps, uri, []);
-    }
-    for (const [uri, diagnostics] of diagnosticsByUri) {
-      yield* sendDiagnostics(deps, uri, diagnostics);
-    }
+    const previous = (yield* Ref.get(deps.workspacePublished)).get(root) ?? new Map();
+    const affectedUris = new Set([...previous.keys(), ...diagnosticsByUri.keys()]);
     yield* Ref.update(deps.workspacePublished, (map) => {
       const next = new Map(map);
-      next.set(root, new Set(diagnosticsByUri.keys()));
+      next.set(root, diagnosticsByUri);
       return next;
     });
+    for (const uri of affectedUris) yield* sendMergedDiagnostics(deps, uri);
   });
 
 const attachWorkspaceRoot = (
@@ -332,8 +351,58 @@ const reloadWorkspaceRoot = (
   Effect.gen(function* () {
     yield* Effect.sync(() => log(`workspace metadata change detected for ${root}; reloading`));
     yield* detachWorkspaceRoot(deps, root);
+    if (!deps.configWatchers.has(root)) return;
     yield* attachWorkspaceRoot(deps, root);
+    yield* syncWorkspaceWatcherPaths(deps, root);
   });
+
+function workspaceMetadataPaths(root: string): string[] {
+  const paths = new Set([
+    path.join(root, WORKSPACE_FILE_NAME),
+    path.join(root, CONFIG_FILE_NAME),
+    path.join(root, "package.json"),
+  ]);
+  const discovery = discoverWorkspace(root);
+  if (discovery.ok) {
+    for (const project of discovery.workspace.projects) {
+      paths.add(path.join(project.root, CONFIG_FILE_NAME));
+      paths.add(project.packageJsonPath);
+    }
+  }
+  return [...paths].sort();
+}
+
+const syncWorkspaceWatcherPaths = (
+  deps: ServerDeps,
+  root: string,
+): Effect.Effect<void> =>
+  Effect.promise(async () => {
+    const watcher = deps.configWatchers.get(root);
+    if (watcher === undefined) return;
+    const previous = deps.configWatcherPaths.get(root) ?? new Set<string>();
+    const next = new Set(workspaceMetadataPaths(root));
+    const removed = [...previous].filter((candidate) => !next.has(candidate));
+    const added = [...next].filter((candidate) => !previous.has(candidate));
+    if (removed.length > 0) await watcher.unwatch(removed);
+    if (added.length > 0) watcher.add(added);
+    deps.configWatcherPaths.set(root, next);
+  });
+
+function scheduleWorkspaceReload(
+  deps: ServerDeps,
+  root: string,
+  runInScope: (effect: Effect.Effect<void, never, Scope.Scope>) => void,
+): void {
+  const previous = deps.reloadTimers.get(root);
+  if (previous !== undefined) clearTimeout(previous);
+  const timer = setTimeout(() => {
+    deps.reloadTimers.delete(root);
+    const lock = deps.reloadLocks.get(root);
+    if (lock === undefined || !deps.configWatchers.has(root)) return;
+    runInScope(lock.withPermits(1)(reloadWorkspaceRoot(deps, root)));
+  }, 75);
+  deps.reloadTimers.set(root, timer);
+}
 
 /**
  * Watch the workspace's config file so edits take effect without a
@@ -347,25 +416,29 @@ const watchWorkspaceConfig = (
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.acquireRelease(
     Effect.sync(() => {
-      const watcher = chokidarWatch(root, {
+      const watchedPaths = workspaceMetadataPaths(root);
+      const watcher = chokidarWatch(watchedPaths, {
         ignoreInitial: true,
         persistent: true,
-        ignored: (watchedPath) => watchedPath.includes(`${path.sep}node_modules${path.sep}`),
       });
-      const onEvent = (changedPath: string): void => {
-        const base = path.basename(changedPath);
-        if (base === CONFIG_FILE_NAME || base === WORKSPACE_FILE_NAME || base === "package.json") {
-          runInScope(reloadWorkspaceRoot(deps, root));
-        }
-      };
+      const onEvent = (): void => scheduleWorkspaceReload(deps, root, runInScope);
       watcher.on("add", onEvent);
       watcher.on("change", onEvent);
       watcher.on("unlink", onEvent);
       deps.configWatchers.set(root, watcher);
+      deps.configWatcherPaths.set(root, new Set(watchedPaths));
+      if (!deps.reloadLocks.has(root)) {
+        deps.reloadLocks.set(root, Effect.unsafeMakeSemaphore(1));
+      }
       return watcher;
     }),
     (watcher) =>
       Effect.promise(async () => {
+        const timer = deps.reloadTimers.get(root);
+        if (timer !== undefined) clearTimeout(timer);
+        deps.reloadTimers.delete(root);
+        deps.configWatcherPaths.delete(root);
+        deps.reloadLocks.delete(root);
         await watcher.close();
       }),
   ).pipe(Effect.asVoid);
@@ -474,8 +547,13 @@ const setupWorkspaceFolderHandler = (
       const root = fileURLToPath(removed.uri);
       const watcher = deps.configWatchers.get(root);
       deps.configWatchers.delete(root);
+      const timer = deps.reloadTimers.get(root);
+      if (timer !== undefined) clearTimeout(timer);
+      deps.reloadTimers.delete(root);
       if (watcher) void watcher.close();
-      Effect.runFork(detachWorkspaceRoot(deps, root));
+      const lock = deps.reloadLocks.get(root);
+      const detach = detachWorkspaceRoot(deps, root);
+      runInScope(lock === undefined ? detach : lock.withPermits(1)(detach));
     }
     for (const added of event.added) {
       const root = fileURLToPath(added.uri);
@@ -505,9 +583,13 @@ export const makeLspServer = (
     const docs = yield* makeDocumentStore();
     const registry = yield* makeWorkspaceRegistry();
     const ready = yield* Deferred.make<void>();
-    const published = yield* Ref.make<ReadonlyMap<string, ReadonlySet<string>>>(new Map());
+    const published = yield* Ref.make<
+      ReadonlyMap<string, ReadonlyMap<string, readonly Diagnostic[]>>
+    >(new Map());
     const workspaceProjects = yield* Ref.make<ReadonlyMap<string, readonly string[]>>(new Map());
-    const workspacePublished = yield* Ref.make<ReadonlyMap<string, ReadonlySet<string>>>(new Map());
+    const workspacePublished = yield* Ref.make<
+      ReadonlyMap<string, ReadonlyMap<string, readonly Diagnostic[]>>
+    >(new Map());
     const deps: ServerDeps = {
       connection,
       docs,
@@ -517,6 +599,9 @@ export const makeLspServer = (
       workspaceProjects,
       workspacePublished,
       configWatchers: new Map(),
+      configWatcherPaths: new Map(),
+      reloadLocks: new Map(),
+      reloadTimers: new Map(),
     };
 
     const scope = yield* Effect.scope;

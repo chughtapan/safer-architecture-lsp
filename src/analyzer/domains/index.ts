@@ -1,3 +1,4 @@
+import path from "node:path";
 import { makeDirectedGraph } from "../graph/directed-graph.js";
 import {
   canonicalCyclePath,
@@ -124,9 +125,9 @@ function matchesAny(candidate: string, roots: readonly string[]): boolean {
 
 function pathContains(root: string, candidate: string): boolean {
   const normalizedCandidate = normalize(candidate);
-  return normalizedCandidate === root || normalizedCandidate.startsWith(`${root}/`);
+  return root === "." || normalizedCandidate === root || normalizedCandidate.startsWith(`${root}/`);
 }
 
 function normalize(value: string): string {
-  return value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "");
+  return path.posix.normalize(value.replaceAll("\\", "/"));
 }

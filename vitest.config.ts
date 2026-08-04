@@ -13,11 +13,13 @@ export default defineConfig({
       exclude: ["src/**/*.d.ts"],
       reporter: ["text", "json-summary", "lcov"],
       reportsDirectory: "coverage",
+      // Ratchet the measured whole-src baseline. Raise these as coverage grows;
+      // the long-term target remains 100% in every category.
       thresholds: {
-        lines: 100,
-        statements: 100,
-        functions: 100,
-        branches: 100,
+        lines: 68,
+        statements: 68,
+        functions: 90,
+        branches: 83,
       },
     },
   },

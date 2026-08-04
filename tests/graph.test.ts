@@ -57,3 +57,18 @@ it("returns no canonical path for an empty component", () => {
   const graph = makeDirectedGraph<string, TestEdge>([], []);
   expect(canonicalCyclePath(graph, [])).toEqual([]);
 });
+
+it("handles a large SCC without exhausting the JavaScript stack", () => {
+  const size = 10_000;
+  const nodes = Array.from({ length: size }, (_, index) => `node-${String(index).padStart(5, "0")}`);
+  const edges: TestEdge[] = nodes.map((node, index) => ({
+    from: node,
+    to: nodes[(index + 1) % size] as string,
+    label: `edge-${index}`,
+  }));
+  const graph = makeDirectedGraph(nodes, edges);
+  const components = cyclicStronglyConnectedComponents(graph);
+  expect(components).toHaveLength(1);
+  expect(components[0]).toHaveLength(size);
+  expect(canonicalCyclePath(graph, components[0] ?? [])).toHaveLength(size + 1);
+});

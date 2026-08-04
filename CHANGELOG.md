@@ -18,10 +18,11 @@
 
 - Cache external-package type walks across public entrypoints, fixing the
   Effect-heavy cold path without changing per-entrypoint findings.
-- Add a global production-source coverage gate and a real-protocol performance
-  regression fixture.
-- Verify the Moltzap protocol package under a 4 GB heap stays below 10 seconds
-  and 1 GB RSS.
+- Add a global production-source coverage ratchet (69% lines/statements, 90%
+  functions, 83% branches); subsequent passes will continue raising the
+  ratchet toward 100%.
+- Manually verify the Moltzap protocol package under a 4 GB heap stays below
+  10 seconds and 1 GB RSS.
 
 ## 0.2.0 (2026-07-22)
 

@@ -52,7 +52,13 @@ it.effect("registers each workspace once and releases it on unregister", () =>
         (created) => Effect.sync(created.cleanup),
       );
       const registry = yield* makeWorkspaceRegistry();
-      const first = yield* registry.register(fixture.root);
+      const registrations = yield* Effect.all(
+        Array.from({ length: 4 }, () => registry.register(fixture.root)),
+        { concurrency: "unbounded" },
+      );
+      const first = registrations[0];
+      assert.isDefined(first);
+      assert.isTrue(registrations.every((engine) => engine === first));
       const second = yield* registry.register(fixture.root);
       assert.strictEqual(second, first);
       assert.deepStrictEqual(yield* registry.listProjectRoots(), [fixture.root]);
