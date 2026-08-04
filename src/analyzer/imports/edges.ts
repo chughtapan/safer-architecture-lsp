@@ -1,6 +1,6 @@
 import path from "node:path";
 import ts from "typescript";
-import { resolveLocalSpecifier } from "./specifier-resolution.js";
+import type { CachedModuleResolver } from "./specifier-resolution.js";
 import type {
   ExternalModuleEdge,
   LocalModuleEdge,
@@ -17,18 +17,18 @@ interface SpecifierEdgeContext {
   readonly moduleSpecifier: ts.Expression;
   readonly typeOnly: boolean;
   readonly kind: ModuleEdgeKind;
-  readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
+  readonly resolver: CachedModuleResolver;
 }
 
 export function collectModuleEdges(
   sourceFile: ts.SourceFile,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): ModuleEdges {
   const localEdges: LocalModuleEdge[] = [];
   const externalEdges: ExternalModuleEdge[] = [];
 
   for (const statement of sourceFile.statements) {
-    const context = specifierEdgeContext(sourceFile, statement, sourceFilesByPath);
+    const context = specifierEdgeContext(sourceFile, statement, resolver);
     if (context !== null) collectSpecifierEdge(context, localEdges, externalEdges);
   }
 
@@ -38,7 +38,7 @@ export function collectModuleEdges(
 function specifierEdgeContext(
   sourceFile: ts.SourceFile,
   statement: ts.Statement,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): SpecifierEdgeContext | null {
   if (ts.isImportDeclaration(statement)) {
     return {
@@ -46,7 +46,7 @@ function specifierEdgeContext(
       moduleSpecifier: statement.moduleSpecifier,
       typeOnly: importDeclarationIsTypeOnly(statement),
       kind: "import",
-      sourceFilesByPath,
+      resolver,
     };
   }
   if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier) return null;
@@ -55,7 +55,7 @@ function specifierEdgeContext(
     moduleSpecifier: statement.moduleSpecifier,
     typeOnly: exportDeclarationIsTypeOnly(statement),
     kind: "reexport",
-    sourceFilesByPath,
+    resolver,
   };
 }
 
@@ -66,11 +66,7 @@ function collectSpecifierEdge(
 ): void {
   if (!ts.isStringLiteral(context.moduleSpecifier)) return;
   const specifier = context.moduleSpecifier.text;
-  const localTarget = resolveLocalSpecifier(
-    context.fromFile,
-    specifier,
-    context.sourceFilesByPath,
-  );
+  const localTarget = context.resolver.resolveLocal(context.fromFile, specifier);
   if (localTarget) {
     localEdges.push(localModuleEdge(context, localTarget, specifier));
     return;

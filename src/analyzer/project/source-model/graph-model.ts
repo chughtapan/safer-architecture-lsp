@@ -16,6 +16,12 @@ export interface ExternalModuleEdge {
   readonly specifier: string;
 }
 
+export interface ModuleResolutionSnapshotEntry {
+  readonly fromFile: string;
+  readonly specifier: string;
+  readonly targetFile: string | null;
+}
+
 export interface SourceModule {
   readonly fileName: string;
   readonly relativePath: string;
@@ -56,6 +62,7 @@ export interface ProjectArchitectureGraph {
   readonly publicModules: readonly SourceModule[];
   readonly localEdges: readonly LocalModuleEdge[];
   readonly externalEdges: readonly ExternalModuleEdge[];
+  readonly moduleResolutions: readonly ModuleResolutionSnapshotEntry[];
   readonly exportConsumers: readonly ExportConsumer[];
   readonly exportConsumersByFileName: ReadonlyMap<string, readonly ExportConsumer[]>;
   readonly folderEdges: readonly FolderEdge[];

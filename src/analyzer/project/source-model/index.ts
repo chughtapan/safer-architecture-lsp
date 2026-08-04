@@ -24,6 +24,7 @@ export type {
   ExternalModuleEdge,
   FolderEdge,
   LocalModuleEdge,
+  ModuleResolutionSnapshotEntry,
   ModuleEdgeKind,
   ProjectArchitectureGraph,
   SourceModule,

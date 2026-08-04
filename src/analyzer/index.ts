@@ -82,7 +82,13 @@ export function analyzeResolvedArchitecture(
   const sourceFiles = program ? projectSourceFiles(program, options.projectRoot) : [];
   const unavailableDiagnostics = program === null ? analysisUnavailable(options) : [];
   const packageReportFile = findPackageReportFile(sourceFiles, options.projectRoot);
-  const graph = buildProjectGraph(sourceFiles, packageJson, options, packageReportFile);
+  const graph = buildProjectGraph(
+    sourceFiles,
+    packageJson,
+    options,
+    packageReportFile,
+    program?.getCompilerOptions(),
+  );
   const directiveAnalysis = analyzeDirectiveComments(sourceFiles);
 
   const allDiagnostics = uniqueDiagnostics([

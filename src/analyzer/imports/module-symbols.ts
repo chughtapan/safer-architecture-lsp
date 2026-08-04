@@ -1,6 +1,6 @@
 import path from "node:path";
 import ts from "typescript";
-import { resolveLocalSpecifier } from "./specifier-resolution.js";
+import type { CachedModuleResolver } from "./specifier-resolution.js";
 import type { ExportConsumer } from "../project/index.js";
 
 interface ImportTargetContext {
@@ -23,13 +23,13 @@ export function collectExportedSymbolNames(sourceFile: ts.SourceFile): readonly 
 
 export function collectExportConsumers(
   sourceFiles: readonly ts.SourceFile[],
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): readonly ExportConsumer[] {
   return sourceFiles
     .flatMap((sourceFile) => [
-      ...namedImportConsumers(sourceFile, sourceFilesByPath),
-      ...namedReexportConsumers(sourceFile, sourceFilesByPath),
-      ...namespaceImportConsumers(sourceFile, sourceFilesByPath),
+      ...namedImportConsumers(sourceFile, resolver),
+      ...namedReexportConsumers(sourceFile, resolver),
+      ...namespaceImportConsumers(sourceFile, resolver),
     ])
     .sort(compareExportConsumers);
 }
@@ -85,20 +85,20 @@ function addBindingName(symbols: Set<string>, name: ts.BindingName): void {
 
 function namedImportConsumers(
   sourceFile: ts.SourceFile,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): readonly ExportConsumer[] {
   return sourceFile.statements.flatMap((statement) =>
-    importDeclarationConsumers(sourceFile.fileName, statement, sourceFilesByPath)
+    importDeclarationConsumers(sourceFile.fileName, statement, resolver)
   );
 }
 
 function importDeclarationConsumers(
   fromFile: string,
   statement: ts.Statement,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): readonly ExportConsumer[] {
   if (!ts.isImportDeclaration(statement)) return [];
-  const context = importTargetContext(fromFile, statement, sourceFilesByPath);
+  const context = importTargetContext(fromFile, statement, resolver);
   if (context === null || !statement.importClause) return [];
   return importClauseConsumers(statement.importClause, context);
 }
@@ -106,14 +106,10 @@ function importDeclarationConsumers(
 function importTargetContext(
   fromFile: string,
   statement: ts.ImportDeclaration,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): ImportTargetContext | null {
   if (!ts.isStringLiteral(statement.moduleSpecifier)) return null;
-  const targetFile = resolveLocalSpecifier(
-    fromFile,
-    statement.moduleSpecifier.text,
-    sourceFilesByPath,
-  );
+  const targetFile = resolver.resolveLocal(fromFile, statement.moduleSpecifier.text);
   if (targetFile === null) return null;
   return {
     fromFile: path.resolve(fromFile),
@@ -151,27 +147,23 @@ function namedImportBindingConsumers(
 
 function namedReexportConsumers(
   sourceFile: ts.SourceFile,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): readonly ExportConsumer[] {
   return sourceFile.statements.flatMap((statement) =>
-    exportDeclarationConsumers(sourceFile.fileName, statement, sourceFilesByPath)
+    exportDeclarationConsumers(sourceFile.fileName, statement, resolver)
   );
 }
 
 function exportDeclarationConsumers(
   fromFile: string,
   statement: ts.Statement,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): readonly ExportConsumer[] {
   if (!ts.isExportDeclaration(statement)) return [];
   if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) return [];
   if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return [];
 
-  const targetFile = resolveLocalSpecifier(
-    fromFile,
-    statement.moduleSpecifier.text,
-    sourceFilesByPath,
-  );
+  const targetFile = resolver.resolveLocal(fromFile, statement.moduleSpecifier.text);
   if (targetFile === null) return [];
 
   return statement.exportClause.elements.map((element) =>
@@ -189,20 +181,20 @@ function exportDeclarationConsumers(
 
 function namespaceImportConsumers(
   sourceFile: ts.SourceFile,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): readonly ExportConsumer[] {
-  const bindings = namespaceImportBindings(sourceFile, sourceFilesByPath);
+  const bindings = namespaceImportBindings(sourceFile, resolver);
   if (bindings.size === 0) return [];
   return namespaceMemberUses(sourceFile, bindings);
 }
 
 function namespaceImportBindings(
   sourceFile: ts.SourceFile,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): ReadonlyMap<string, NamespaceImportBinding> {
   const bindings = new Map<string, NamespaceImportBinding>();
   for (const statement of sourceFile.statements) {
-    addNamespaceImportBinding(bindings, sourceFile.fileName, statement, sourceFilesByPath);
+    addNamespaceImportBinding(bindings, sourceFile.fileName, statement, resolver);
   }
   return bindings;
 }
@@ -211,10 +203,10 @@ function addNamespaceImportBinding(
   bindings: Map<string, NamespaceImportBinding>,
   fromFile: string,
   statement: ts.Statement,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
 ): void {
   if (!ts.isImportDeclaration(statement)) return;
-  const context = importTargetContext(fromFile, statement, sourceFilesByPath);
+  const context = importTargetContext(fromFile, statement, resolver);
   const namespaceImport = resolveNamespaceImportFromClause(statement.importClause);
   if (context === null || namespaceImport === null) return;
   bindings.set(namespaceImport.name.text, {
