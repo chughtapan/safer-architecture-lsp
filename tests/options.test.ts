@@ -6,8 +6,8 @@
 
 import path from "node:path";
 import { expect, it } from "vitest";
-import { resolveArchitectureOptions } from "../dist/index.js";
-import { createProgram } from "../dist/analyzer/project/source-files.js";
+import { resolveArchitectureOptions } from "../src/index.js";
+import { createProgram } from "../src/analyzer/project/source-files.js";
 import { makeFixture } from "./support/fixtures.js";
 
 it("resolves a bare projectRoot to absolute with defaults applied", () => {

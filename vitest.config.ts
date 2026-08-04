@@ -7,5 +7,12 @@ export default defineConfig({
     // parallel workers contend badly on CI-sized machines.
     fileParallelism: false,
     testTimeout: 30_000,
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.d.ts"],
+      reporter: ["text", "json-summary", "lcov"],
+      reportsDirectory: "coverage",
+    },
   },
 });

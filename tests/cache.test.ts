@@ -10,9 +10,9 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { expect, it, vi } from "vitest";
 // eslint-disable-next-line import/no-relative-packages -- test reaches into dist like the other suites
-import { dependencyWatermarks } from "../dist/analyzer/project/cache/dependency-watermark.js";
-import { WorkspaceCache } from "../dist/analyzer/project/cache/index.js";
-import { resolveArchitectureOptions } from "../dist/index.js";
+import { dependencyWatermarks } from "../src/analyzer/project/cache/dependency-watermark.js";
+import { WorkspaceCache } from "../src/analyzer/project/cache/index.js";
+import { resolveArchitectureOptions } from "../src/index.js";
 import { makeFixture } from "./support/fixtures.js";
 
 const PACKAGE_VERSION: string = (

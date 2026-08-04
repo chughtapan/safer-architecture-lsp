@@ -8,7 +8,7 @@ import { afterEach, expect, it } from "vitest";
 import {
   analyzeResolvedArchitecture,
   resolveArchitectureOptions,
-} from "../dist/index.js";
+} from "../src/index.js";
 import { makeFixture, type Fixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;
