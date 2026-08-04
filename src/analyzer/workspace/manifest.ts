@@ -8,7 +8,7 @@ export const WORKSPACE_FILE_NAME = "safer-architecture.workspace.json";
 
 const NonEmptyString = Schema.String.pipe(Schema.minLength(1));
 
-export class WorkspaceManifest extends Schema.Class<WorkspaceManifest>(
+class WorkspaceManifest extends Schema.Class<WorkspaceManifest>(
   "WorkspaceManifest",
 )({
   packages: Schema.Array(NonEmptyString),

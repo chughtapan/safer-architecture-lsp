@@ -16,7 +16,7 @@ import {
 } from "../analyzer/project/api/index.js";
 import { loadWorkspaceConfig, type LoadedWorkspaceConfig } from "./config-loader.js";
 
-export interface WorkspaceProjectReport {
+interface WorkspaceProjectReport {
   readonly name: string;
   readonly root: string;
   readonly configSource: LoadedWorkspaceConfig["source"];

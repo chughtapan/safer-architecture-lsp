@@ -150,3 +150,55 @@ it("publishes real diagnostics over a full session and hot-reloads config edits"
   const code = await exited;
   expect(code).toBe(0);
 }, 180_000);
+
+it("expands an explicit workspace and publishes package-cycle diagnostics", async () => {
+  const packageTsconfig = JSON.stringify({
+    compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext" },
+    include: ["src/**/*.ts"],
+  });
+  fixture = makeFixture({
+    "packages/a/src/index.ts": "export const a = 1;\n",
+    "packages/a/tsconfig.json": packageTsconfig,
+    "packages/a/package.json": JSON.stringify({
+      name: "@fixture/a",
+      dependencies: { "@fixture/b": "workspace:*" },
+    }),
+    "packages/b/src/index.ts": "export const b = 1;\n",
+    "packages/b/tsconfig.json": packageTsconfig,
+    "packages/b/package.json": JSON.stringify({
+      name: "@fixture/b",
+      dependencies: { "@fixture/a": "workspace:*" },
+    }),
+    "safer-architecture.workspace.json": JSON.stringify({
+      packages: ["packages/b", "packages/a"],
+    }),
+  });
+  const root = fixture.root;
+
+  child = spawn(process.execPath, [BIN, "serve"], { stdio: ["pipe", "pipe", "pipe"] });
+  const collector = new MessageCollector();
+  child.stdout.on("data", (chunk: Buffer) => collector.push(chunk));
+  child.stdin.write(frame({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      processId: null,
+      capabilities: {},
+      workspaceFolders: [{ uri: pathToFileURL(root).toString(), name: "workspace" }],
+    },
+  }));
+  await waitFor(() => collector.messages.find((message) => message.id === 1), "initialize response");
+  child.stdin.write(frame({ jsonrpc: "2.0", method: "initialized", params: {} }));
+
+  const packageJsonUri = pathToFileURL(path.join(root, "packages/a/package.json")).toString();
+  const cycle = await waitFor(
+    () => collector.messages.find((message) =>
+      message.method === "textDocument/publishDiagnostics" &&
+      message.params?.uri === packageJsonUri &&
+      (message.params.diagnostics ?? []).some((diagnostic) =>
+        diagnostic.code === "no-workspace-package-cycle")),
+    "workspace package cycle diagnostic",
+  );
+  expect(cycle).toBeDefined();
+}, 180_000);

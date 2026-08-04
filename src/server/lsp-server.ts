@@ -33,6 +33,11 @@ import {
   TextDocumentSyncKind,
 } from "vscode-languageserver";
 import { clearWorkspaceCache } from "../analyzer/project/cache/index.js";
+import {
+  WORKSPACE_FILE_NAME,
+  discoverWorkspace,
+  workspacePackageCycleDiagnostics,
+} from "../analyzer/workspace/index.js";
 import { groupByUri } from "./diagnostic-converter.js";
 import { type DocumentStore, makeDocumentStore } from "./document-store.js";
 import { type WorkspaceEngine } from "./workspace-engine.js";
@@ -68,6 +73,12 @@ interface ServerDeps {
    * it, so fixed findings never leave stale squiggles behind.
    */
   readonly published: Ref.Ref<ReadonlyMap<string, ReadonlySet<string>>>;
+
+  /** Project roots attached for each client workspace folder. */
+  readonly workspaceProjects: Ref.Ref<ReadonlyMap<string, readonly string[]>>;
+
+  /** Non-project diagnostics (workspace manifest and package graph), by workspace root. */
+  readonly workspacePublished: Ref.Ref<ReadonlyMap<string, ReadonlySet<string>>>;
 
   /** One config-file watcher per workspace root; survives engine reloads. */
   readonly configWatchers: Map<string, FSWatcher>;
@@ -190,7 +201,7 @@ const handleInitialize = (): InitializeResult => ({
  * the engine, surface config problems as a diagnostic on the config
  * file, wire the invalidation stream, and publish the initial report.
  */
-const attachWorkspace = (
+const attachProject = (
   deps: ServerDeps,
   root: string,
 ): Effect.Effect<void, never, Scope.Scope> =>
@@ -223,7 +234,7 @@ const attachWorkspace = (
   });
 
 /** Tear the workspace down and clear everything it ever published. */
-const detachWorkspace = (deps: ServerDeps, root: string): Effect.Effect<void> =>
+const detachProject = (deps: ServerDeps, root: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const previous = (yield* Ref.get(deps.published)).get(root) ?? new Set<string>();
     for (const uri of previous) yield* sendDiagnostics(deps, uri, []);
@@ -237,14 +248,91 @@ const detachWorkspace = (deps: ServerDeps, root: string): Effect.Effect<void> =>
   });
 
 /** Rebuild the workspace's engine after a config change. */
-const reloadWorkspace = (
+const publishWorkspaceDiagnostics = (
+  deps: ServerDeps,
+  root: string,
+  diagnosticsByUri: ReadonlyMap<string, readonly Diagnostic[]>,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const previous = (yield* Ref.get(deps.workspacePublished)).get(root) ?? new Set<string>();
+    for (const uri of previous) {
+      if (!diagnosticsByUri.has(uri)) yield* sendDiagnostics(deps, uri, []);
+    }
+    for (const [uri, diagnostics] of diagnosticsByUri) {
+      yield* sendDiagnostics(deps, uri, diagnostics);
+    }
+    yield* Ref.update(deps.workspacePublished, (map) => {
+      const next = new Map(map);
+      next.set(root, new Set(diagnosticsByUri.keys()));
+      return next;
+    });
+  });
+
+const attachWorkspaceRoot = (
   deps: ServerDeps,
   root: string,
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.gen(function* () {
-    yield* Effect.sync(() => log(`config change detected for ${root}; reloading`));
-    yield* deps.registry.unregister(root);
-    yield* attachWorkspace(deps, root);
+    const discovery = discoverWorkspace(root);
+    if (!discovery.ok) {
+      const uri = pathToFileURL(discovery.manifestPath).toString();
+      yield* publishWorkspaceDiagnostics(deps, root, new Map([[uri, [
+        serverErrorDiagnostic(
+          "invalid-workspace-config",
+          `${WORKSPACE_FILE_NAME} is invalid: ${discovery.problem}. Until this is fixed the workspace has NO architecture coverage.`,
+        ),
+      ]]]));
+      yield* Ref.update(deps.workspaceProjects, (map) => {
+        const next = new Map(map);
+        next.set(root, []);
+        return next;
+      });
+      return;
+    }
+
+    const projectRoots = discovery.workspace.projects.map((project) => project.root);
+    yield* Ref.update(deps.workspaceProjects, (map) => {
+      const next = new Map(map);
+      next.set(root, projectRoots);
+      return next;
+    });
+    for (const project of discovery.workspace.projects) {
+      yield* attachProject(deps, project.root);
+    }
+    const cycleDiagnostics = groupByUri(
+      workspacePackageCycleDiagnostics(discovery.workspace),
+    );
+    yield* publishWorkspaceDiagnostics(deps, root, cycleDiagnostics);
+    yield* Effect.sync(() =>
+      log(`workspace root ${root} attached with ${projectRoots.length} project(s)`),
+    );
+  });
+
+const detachWorkspaceRoot = (deps: ServerDeps, root: string): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const projects = (yield* Ref.get(deps.workspaceProjects)).get(root) ?? [];
+    for (const projectRoot of projects) yield* detachProject(deps, projectRoot);
+    yield* Ref.update(deps.workspaceProjects, (map) => {
+      const next = new Map(map);
+      next.delete(root);
+      return next;
+    });
+    yield* publishWorkspaceDiagnostics(deps, root, new Map());
+    yield* Ref.update(deps.workspacePublished, (map) => {
+      const next = new Map(map);
+      next.delete(root);
+      return next;
+    });
+  });
+
+const reloadWorkspaceRoot = (
+  deps: ServerDeps,
+  root: string,
+): Effect.Effect<void, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    yield* Effect.sync(() => log(`workspace metadata change detected for ${root}; reloading`));
+    yield* detachWorkspaceRoot(deps, root);
+    yield* attachWorkspaceRoot(deps, root);
   });
 
 /**
@@ -259,9 +347,17 @@ const watchWorkspaceConfig = (
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.acquireRelease(
     Effect.sync(() => {
-      const configPath = path.join(root, CONFIG_FILE_NAME);
-      const watcher = chokidarWatch(configPath, { ignoreInitial: true, persistent: true });
-      const onEvent = (): void => runInScope(reloadWorkspace(deps, root));
+      const watcher = chokidarWatch(root, {
+        ignoreInitial: true,
+        persistent: true,
+        ignored: (watchedPath) => watchedPath.includes(`${path.sep}node_modules${path.sep}`),
+      });
+      const onEvent = (changedPath: string): void => {
+        const base = path.basename(changedPath);
+        if (base === CONFIG_FILE_NAME || base === WORKSPACE_FILE_NAME || base === "package.json") {
+          runInScope(reloadWorkspaceRoot(deps, root));
+        }
+      };
       watcher.on("add", onEvent);
       watcher.on("change", onEvent);
       watcher.on("unlink", onEvent);
@@ -299,7 +395,7 @@ const registerInitialWorkspaces = (
       );
     }
     for (const root of roots) {
-      yield* attachWorkspace(deps, root);
+      yield* attachWorkspaceRoot(deps, root);
       yield* watchWorkspaceConfig(deps, root, runInScope);
     }
   });
@@ -379,13 +475,13 @@ const setupWorkspaceFolderHandler = (
       const watcher = deps.configWatchers.get(root);
       deps.configWatchers.delete(root);
       if (watcher) void watcher.close();
-      Effect.runFork(detachWorkspace(deps, root));
+      Effect.runFork(detachWorkspaceRoot(deps, root));
     }
     for (const added of event.added) {
       const root = fileURLToPath(added.uri);
       runInScope(
         Effect.gen(function* () {
-          yield* attachWorkspace(deps, root);
+          yield* attachWorkspaceRoot(deps, root);
           yield* watchWorkspaceConfig(deps, root, runInScope);
         }),
       );
@@ -410,12 +506,16 @@ export const makeLspServer = (
     const registry = yield* makeWorkspaceRegistry();
     const ready = yield* Deferred.make<void>();
     const published = yield* Ref.make<ReadonlyMap<string, ReadonlySet<string>>>(new Map());
+    const workspaceProjects = yield* Ref.make<ReadonlyMap<string, readonly string[]>>(new Map());
+    const workspacePublished = yield* Ref.make<ReadonlyMap<string, ReadonlySet<string>>>(new Map());
     const deps: ServerDeps = {
       connection,
       docs,
       registry,
       ready,
       published,
+      workspaceProjects,
+      workspacePublished,
       configWatchers: new Map(),
     };
 
