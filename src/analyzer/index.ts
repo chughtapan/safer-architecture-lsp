@@ -14,6 +14,7 @@ import {
   checkFolderGraph,
   type ProjectArchitectureGraph,
 } from "./imports/index.js";
+import { moduleCycleDiagnostics } from "./imports/module-cycles.js";
 import { checkModuleShape } from "./module-shape/index.js";
 import {
   checkPackageExports,
@@ -89,6 +90,7 @@ export function analyzeResolvedArchitecture(
     ...checkInventoryBarrels(sourceFiles, options),
     ...resolvePublicVendorTypeLeaks(program, graph, packageJson, options),
     ...checkPublicSurface(graph, sourceFiles, packageJson, options),
+    ...moduleCycleDiagnostics(graph),
     ...checkFolderGraph(graph, options),
     ...checkFolderShape(graph, options),
     ...checkModuleShape(graph, options),

@@ -8,6 +8,7 @@ export const ARCHITECTURE_DIAGNOSTIC_RULE_IDS = [
   "no-public-vendor-type-leak",
   "no-export-star-boundary",
   "no-folder-cycle",
+  "no-module-cycle",
   "no-root-internal-cycle",
   "no-large-public-surface",
   "no-cross-domain-sibling-import",

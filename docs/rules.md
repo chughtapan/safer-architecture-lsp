@@ -48,6 +48,7 @@ suppression fails loudly instead of silently lapsing.
 | [no-public-vendor-type-leak](#no-public-vendor-type-leak) | Type boundaries | public API re-exports or returns a non-allowed external package's types | `publicTypePackages`, `packageRuntime` |
 | [no-export-star-boundary](#no-export-star-boundary) | Public surface | a public or `index` module uses `export *` | Not configurable |
 | [no-folder-cycle](#no-folder-cycle) | Folder graph | production folders form an import cycle | Not configurable |
+| [no-module-cycle](#no-module-cycle) | Module graph | production modules form an import cycle, including self-imports | Not configurable |
 | [no-root-internal-cycle](#no-root-internal-cycle) | Folder graph | root (`.`) and an `internal` folder import each other | Not configurable |
 | [no-large-public-surface](#no-large-public-surface) | Public surface | a public module exports >20 symbols or >12 local re-exports | `maxPublicExports`, `maxPublicReexports` |
 | [no-cross-domain-sibling-import](#no-cross-domain-sibling-import) | Layering | an import crosses sibling top-level domains | `sharedFolderNames`, `layers` |
@@ -207,6 +208,25 @@ both depend on, or invert one edge behind a facade/port so knowledge
 flows one way.
 
 **Suppress:** `// safer-arch-ignore no-folder-cycle: <reason>`
+
+## no-module-cycle
+
+**Flags.** A strongly connected component among production modules,
+including a single module that imports itself. Each finding lists the
+component's files in lexical order and one canonical cycle rooted at the
+lexically first file, so repeated CLI and LSP runs produce identical output.
+Severity `warn`.
+
+**Why.** File-level cycles hide initialization order and make a local edit
+depend on an entire knot of modules. Folder-level analysis can miss these
+when every file lives under one folder, so this rule retains module precision.
+
+**Options.** Not configurable; suppress per-file if needed.
+
+**Fix.** Move the shared contract inward, merge files that are one abstraction,
+or reverse one dependency behind a package-owned port.
+
+**Suppress:** `// safer-arch-ignore no-module-cycle: <reason>`
 
 ## no-root-internal-cycle
 
