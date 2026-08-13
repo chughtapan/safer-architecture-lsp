@@ -39,6 +39,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Covers what eslint cannot: markdown, YAML, and JSON. The range form is
+      # required - bare `git diff --check` only compares the working tree to the
+      # index, so it sees nothing once a change is staged or committed.
+      - name: Whitespace check
+        run: git diff --check origin/${{ github.base_ref || 'main' }}...HEAD
+
       # Dogfood: the analyzer must pass on its own repository with the
       # committed config + waivers. Exit 1 (findings) or 2 (can't
       # analyze) fails the job.
