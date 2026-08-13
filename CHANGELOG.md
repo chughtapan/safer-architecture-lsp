@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.1 (2026-08-12)
+
+- Adopt Agent Code Guard 0.0.21's `recommended` ESLint policy as a blocking
+  quality gate. `npm run lint` now runs ESLint and Knip, and CI enforces it.
+- Add a type-aware flat config that lints src, tests, and root config files.
+  `tsconfig.test.json` brings tests into a program for the first time, which
+  surfaced and fixed five type errors in tests/graph.test.ts that were
+  invisible while tests sat outside every tsconfig.
+- Document every exported declaration and add a canonical `@file` overview to
+  each linted module.
+- Replace JavaScript private fields with the TypeScript `private` modifier,
+  give every `.sort()` an explicit comparator that reproduces lexicographic
+  order without locale dependence, and order declarations callers-first.
+- Migrate the server and proxy binaries to `Effect.Effect<undefined>` and
+  convert their remaining raw promise surfaces to Effect, including a typed
+  `BackendWriteError`. No public API changed: the package exports a single
+  entry that re-exports only the analyzer.
+- Add property cases where tests previously asserted a single example: 77
+  named tests to 87, none removed. Coverage rises to 78.27% lines.
+- Upload the coverage report as a CI artifact when a run fails, so a gate
+  failure is diagnosable rather than lost.
+
 ## 0.3.0 (2026-08-12)
 
 - Cache external-package type walks across public entrypoints, fixing the

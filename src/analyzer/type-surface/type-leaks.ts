@@ -11,7 +11,7 @@ import {
   type ArchitectureDiagnostic,
   type ArchitectureSeverity,
   type PackageJson,
-  publicApiSourceFiles, type ResolvedArchitectureOptions , uniqueDiagnostics 
+  publicApiSourceFiles, type ResolvedArchitectureOptions , uniqueDiagnostics
 } from "../project/api/index.js";
 import { buildExternalTypeReach } from "./external-reach.js";
 

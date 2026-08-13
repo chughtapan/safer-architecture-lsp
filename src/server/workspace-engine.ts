@@ -14,7 +14,7 @@ import path from "node:path";
 import {
   type ArchitectureDiagnostic,
   type ArchitectureReport,
-  createProgram, type ResolvedArchitectureOptions 
+  createProgram, type ResolvedArchitectureOptions
 } from "../analyzer/project/api/index.js";
 import {
   clearWorkspaceCache,

@@ -33,6 +33,18 @@ jobs:
       - name: Test + coverage (builds first)
         run: npm run test:coverage
 
+      # Coverage is deterministic across machines, but the suite spawns child
+      # processes and Node only flushes coverage on a clean exit. If the gate
+      # ever fails, keep the report so the cause is diagnosable instead of lost.
+      - name: Upload coverage on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.run_id }}
+          path: coverage/
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Lint
         run: npm run lint
 

@@ -10,7 +10,7 @@ import ts from "typescript";
 import {
   type ArchitectureDiagnostic,
   type PackageJson,
-  type ResolvedArchitectureOptions, uniqueDiagnostics 
+  type ResolvedArchitectureOptions, uniqueDiagnostics
 } from "../project/api/index.js";
 import { exportedDeclarationName, hasExportModifier,
   type ProjectArchitectureGraph,

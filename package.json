@@ -1,6 +1,6 @@
 {
   "name": "@chughtapan/safer-architecture-lsp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Whole-project TypeScript architecture analyzer: a check CLI for CI and agents, a stdio LSP for editors, and reason-carrying suppression waivers.",
   "type": "module",
   "license": "Apache-2.0",
@@ -37,7 +37,7 @@
     "prepack": "npm run clean && tsc -p tsconfig.json",
     "test": "npm run build && vitest run",
     "test:coverage": "npm run build && c8 vitest run && node scripts/coverage-gate.mjs",
-    "lint": "agent-code-guard-knip"
+    "lint": "eslint . && agent-code-guard-knip"
   },
   "dependencies": {
     "chokidar": "^5.0.0",
