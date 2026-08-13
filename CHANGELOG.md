@@ -1,12 +1,21 @@
 # Changelog
 
-## 0.3.0 (2026-08-04)
+## 0.3.0 (2026-08-12)
 
 - Cache external-package type walks across public entrypoints, fixing the
   Effect-heavy cold path without changing per-entrypoint findings.
-- Add a global production-source coverage ratchet (68% lines/statements, 90%
-  functions, 83% branches); subsequent passes will continue raising the
-  ratchet toward 100%.
+- Measure coverage with c8 so the server, proxy, and CLI suites that exercise
+  the built `dist/` bins through spawned processes are counted; an in-process
+  v8 provider reported those files as 0%. Server coverage is now visible
+  (`lsp-server.ts` 82.5%, `server/index.ts` 93.5%, `workspace-report.ts`
+  98.1%, `package-cycles.ts` 100%).
+- Add a global production-source coverage ratchet (74% lines/statements, 72%
+  branches) in `.c8rc.json` plus per-directory floors in
+  `scripts/coverage-gate.mjs`, both enforced by CI; subsequent passes will
+  continue raising them toward 100%. The thresholds measure the whole shipped
+  surface, so they are not comparable to a provider that sees only in-process
+  code. Function coverage is reported but not gated: c8 undercounts function
+  ranges through the dist sourcemaps.
 - Manually verify the Moltzap protocol package under a 4 GB heap stays below
   10 seconds and 1 GB RSS.
 - Add deterministic file, domain, and workspace-package SCC diagnostics with
