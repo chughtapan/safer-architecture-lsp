@@ -18,6 +18,7 @@ import { Backend, type BackendHandlers } from "./backend.js";
 import { encodePacket, FrameDecoder, type Message, ProtocolError } from "./framing.js";
 import { log } from "./log.js";
 
+/** Identity the proxy substitutes for the primary's own in the merged `initialize` result, so the client sees the proxy rather than the server behind it. */
 export interface ServerInfo {
   readonly name: string;
   readonly version: string;
@@ -81,6 +82,11 @@ function workspaceFolderCapability(response: Message): Record<string, unknown> |
   return isObject(folders) ? { ...folders } : null;
 }
 
+/**
+ * Owns one client session for the lifetime of the proxy: it fans requests out
+ * or routes them to the primary, merges the replies, and rewrites ids for
+ * server-to-client requests so two backends cannot collide on the same id.
+ */
 export class Multiplexer {
   private readonly backends: Backend[];
   private clientOut: Writable = new Writable();

@@ -15,8 +15,15 @@ const ANALYZER_VERSION_PSEUDO_PATH = "__analyzer_version__";
 const PACKAGE_JSON_PSEUDO_PATH_SUFFIX = "/__package_json__";
 const TSCONFIG_PSEUDO_PATH_SUFFIX = "/__tsconfig__";
 
+/** One cache-invalidation input: something the report depends on, and its current digest. */
 export interface DependencyWatermark {
+  /**
+   * Key the entry is compared under. Non-file inputs use a pseudo-path
+   * so they can share the source-file watermark list without colliding
+   * with a real path.
+   */
   readonly path: string;
+  /** Digest of the input's current content; changing it invalidates the report. */
   readonly hash: string;
 }
 

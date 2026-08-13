@@ -1,3 +1,12 @@
+/**
+ * @file Local module resolution. Resolution is delegated to TypeScript itself
+ * so `paths` aliases, package exports, module suffixes, and extension
+ * substitution behave exactly as they do in the real build; a relative-path
+ * fallback covers fixture programs whose compiler options are incomplete.
+ * Every answer is cached and can be replayed as a snapshot, so one graph build
+ * resolves each specifier once and can show what it decided.
+ */
+
 import path from "node:path";
 import ts from "typescript";
 import type { ModuleResolutionSnapshotEntry } from "../project/index.js";

@@ -1,3 +1,10 @@
+/**
+ * @file End-to-end checks for the domain layer: which files a domain owns,
+ * which imports cross a domain boundary, and which entrypoint configurations
+ * are rejected outright. Every case runs the real analyzer over a throwaway
+ * on-disk project rather than a hand-assembled graph.
+ */
+
 import { afterEach, expect, it } from "vitest";
 import {
   analyzeResolvedArchitecture,

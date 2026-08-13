@@ -1,3 +1,10 @@
+/**
+ * @file Checks the graph primitives every architecture rule is built on:
+ * lexicographic canonicalization of nodes and edges, strongly connected
+ * component discovery, and canonical cycle paths. The 10,000-node case is
+ * here because component search must stay iterative rather than recursive.
+ */
+
 import { expect, it } from "vitest";
 import {
   canonicalCyclePath,

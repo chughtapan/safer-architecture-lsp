@@ -18,7 +18,9 @@ const cache = new Map<string, { readonly href: string }>();
 
 /**
  * `codeDescription` for `ruleId`. Returns a shared frozen object.
- * @param ruleId
+ * @param ruleId Used verbatim as the heading anchor in docs/rules.md; an
+ * empty id degrades to the top of that page instead of a dead anchor.
+ * @returns Cached link object, shared by every diagnostic of this rule.
  */
 export function ruleCodeDescription(
   ruleId: string,

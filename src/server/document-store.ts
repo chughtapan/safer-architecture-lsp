@@ -15,6 +15,11 @@ interface OpenDocument {
   readonly languageId: string;
 }
 
+/**
+ * Effect-returning handle over the open-document set. `get` reports an
+ * unknown URI as `null`, and `update` on an unknown URI is a no-op, so a
+ * change notification racing a close cannot revive a closed buffer.
+ */
 export interface DocumentStore {
   readonly open: (doc: OpenDocument) => Effect.Effect<void>;
   readonly update: (

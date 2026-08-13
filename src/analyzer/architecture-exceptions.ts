@@ -1,9 +1,16 @@
-// safer-arch-ignore no-large-folder: analyzer children are intentionally one folder per analysis concern and already converge on the single analyzer facade.
+/**
+ * @file Reading and indexing of `safer-arch-ignore` suppression directives.
+ * A directive is one comment line naming a known rule plus a written reason,
+ * and every way it can be wrong becomes a reported parse error rather than a
+ * silently ignored comment, so a waiver never stops working unnoticed.
+ */
 import ts from "typescript";
 import {
   ARCHITECTURE_DIAGNOSTIC_RULE_IDS,
   type ArchitectureDiagnosticRuleId,
 } from "./rule-ids.js";
+
+// safer-arch-ignore no-large-folder: analyzer children are intentionally one folder per analysis concern and already converge on the single analyzer facade.
 
 const DIRECTIVE_MARKER = "safer-arch-ignore";
 // The retired two-line marker. It is NEVER honored — seeing it produces a
@@ -16,6 +23,10 @@ interface ArchitectureDirective {
   readonly reason: string;
 }
 
+/**
+ * The directives one file carries. Suppression is file-scoped, so where in
+ * the file a directive was written is not retained.
+ */
 export interface FileDirectives {
   readonly file: string;
   readonly directives: readonly ArchitectureDirective[];
@@ -28,6 +39,11 @@ interface DirectiveParseError {
   readonly message: string;
 }
 
+/**
+ * Both halves of a file's parse: the directives that will suppress
+ * diagnostics, and the malformed lines that are surfaced to the user instead
+ * of being dropped.
+ */
 export interface DirectiveParseResult {
   readonly directives: readonly ArchitectureDirective[];
   readonly errors: readonly DirectiveParseError[];
@@ -43,6 +59,15 @@ interface ParseState {
   readonly errors: DirectiveParseError[];
 }
 
+/**
+ * Read a file's suppression directives out of its comments. Every leading and
+ * trailing comment on every node is inspected, so a directive is honored
+ * wherever the author put it.
+ * @param sourceFile Parsed file whose comment trivia is searched for
+ * directive lines.
+ * @returns The file's valid directives alongside the parse errors that must
+ * be reported to the user.
+ */
 export function parseDirectivesFromSourceFile(
   sourceFile: ts.SourceFile,
 ): DirectiveParseResult {
@@ -209,13 +234,24 @@ function emptyReasonError(
   };
 }
 
+/**
+ * Project-wide suppression lookup, from resolved file path to rule id to the
+ * reason that was written for it.
+ */
 export type DirectiveIndex = ReadonlyMap<
   string,
   ReadonlyMap<ArchitectureDiagnosticRuleId, string>
 >;
 
-// Reasons are retained per (file, rule) so the report can surface the
-// auditable waiver ledger. First directive wins on duplicates.
+/**
+ * Collapse per-file directives into one project-wide lookup. Reasons are
+ * retained per file and rule so the report can surface the auditable waiver
+ * ledger. First directive wins on duplicates.
+ * @param fileDirectives One entry per file that carried at least one
+ * directive, paths already resolved.
+ * @returns The lookup that suppression checks and the waiver ledger both
+ * read.
+ */
 export function buildDirectiveIndex(
   fileDirectives: readonly FileDirectives[],
 ): DirectiveIndex {
@@ -233,6 +269,14 @@ export function buildDirectiveIndex(
   return index;
 }
 
+/**
+ * Decide whether a diagnostic has been waived by its own file.
+ * @param index Project-wide lookup produced by `buildDirectiveIndex`.
+ * @param file Resolved path of the file the diagnostic points at; it must be
+ * resolved the same way the index keys were.
+ * @param ruleId The rule that produced the diagnostic under test.
+ * @returns True when that file wrote a directive for that rule.
+ */
 export function isDirectiveSuppressed(
   index: DirectiveIndex,
   file: string,

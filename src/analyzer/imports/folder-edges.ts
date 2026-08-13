@@ -1,3 +1,11 @@
+/**
+ * @file Collapse of module edges into folder-to-folder edges. An import
+ * inside a single folder, or between a folder and its own ancestor or
+ * descendant, is internal wiring rather than a dependency between folders and
+ * is dropped. Surviving edges and their file lists are sorted so the folder
+ * graph is byte-identical between runs.
+ */
+
 import type {
   FolderEdge,
   LocalModuleEdge,
@@ -10,6 +18,14 @@ interface FolderEdgeRecord {
   readonly metadata: Omit<FolderEdge, "files">;
 }
 
+/**
+ * Merge module edges that share a source folder, target folder, and edge
+ * kind into one folder edge, keeping the set of importing files that produced
+ * it so a diagnostic can point at real evidence.
+ * @param localEdges Resolved module-to-module edges from every source file.
+ * @param modulesByFileName Lookup that places each edge endpoint in its folder.
+ * @returns Deduplicated folder edges in a fixed order, each listing the files behind it.
+ */
 export function collectFolderEdges(
   localEdges: readonly LocalModuleEdge[],
   modulesByFileName: ReadonlyMap<string, SourceModule>,

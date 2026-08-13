@@ -1,3 +1,10 @@
+/**
+ * @file Schema for the architecture rule options: thresholds, layer and
+ * domain definitions, and the allowance lists that widen a rule. Decoding
+ * happens here so an exception cannot enter the config without the written
+ * reason the schema demands alongside it.
+ */
+
 import { Schema } from "effect";
 
 const NonEmptyString = Schema.String.pipe(Schema.minLength(1));
@@ -82,6 +89,10 @@ const LayerDefinition = Schema.Struct({
     description: "Why these folders form a layer. Documents the architectural intent.",
   }),
 });
+/**
+ * One named layer and the folders it claims. Folders may nest across
+ * layers, so the longest matching prefix decides which layer a file is in.
+ */
 export type LayerDefinition = typeof LayerDefinition.Type;
 
 const DomainDefinition = Schema.Struct({
@@ -94,6 +105,11 @@ const DomainDefinition = Schema.Struct({
   }),
   reason: NonEmptyString.annotations({ description: "Why this domain boundary exists." }),
 });
+/**
+ * One bounded domain: the roots whose production modules belong to it, and
+ * the narrower set of paths inside those roots that other domains may
+ * import. Anything else under the roots is internal to the domain.
+ */
 export type DomainDefinition = typeof DomainDefinition.Type;
 
 const DomainOwnership = Schema.Struct({
@@ -101,6 +117,10 @@ const DomainOwnership = Schema.Struct({
   domain: NonEmptyString.annotations({ description: "Domain that explicitly owns this path." }),
   reason: NonEmptyString.annotations({ description: "Why inferred root ownership is overridden." }),
 });
+/**
+ * An explicit assignment of one path to one domain, overriding the
+ * ownership that would otherwise be inferred from the domain roots.
+ */
 export type DomainOwnership = typeof DomainOwnership.Type;
 
 const CompositionRoot = Schema.Struct({
@@ -109,6 +129,10 @@ const CompositionRoot = Schema.Struct({
   }),
   reason: NonEmptyString.annotations({ description: "Why dependency composition belongs at this edge." }),
 });
+/**
+ * A path allowed to depend on several domains at once. Wiring domains
+ * together is a boundary violation everywhere else, so it is named here.
+ */
 export type CompositionRoot = typeof CompositionRoot.Type;
 
 const FolderChildLimitOverride = Schema.Struct({
@@ -272,11 +296,26 @@ const ArchitectureOptionsSchema = Schema.Struct({
   ),
 });
 
-// Encoded = what users write in eslint.config.js (allowance arrays optional, etc.).
-// Type    = what the analyzer reads (defaults filled in, all arrays present).
+/**
+ * Options as a user writes them in an ESLint config, where every threshold
+ * and allowance array may be left out.
+ */
 export type ArchitectureOptionsInput = typeof ArchitectureOptionsSchema.Encoded;
+
+/**
+ * Options as the analyzer reads them, with defaults filled in so every
+ * threshold has a value and every allowance array is present but possibly
+ * empty.
+ */
 export type ArchitectureOptions = typeof ArchitectureOptionsSchema.Type;
 
+/**
+ * Check raw options against the schema without throwing, so the caller
+ * decides how an invalid config is reported.
+ * @param raw Options object handed over by the ESLint config.
+ * @returns The decoded options on the right, or a parse error naming every
+ * field that failed on the left.
+ */
 export function decodeArchitectureOptions(raw: unknown) {
   return Schema.decodeUnknownEither(ArchitectureOptionsSchema)(raw);
 }

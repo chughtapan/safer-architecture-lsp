@@ -1,8 +1,26 @@
+/**
+ * @file Inventory-barrel detection. Flags an index file that re-exports most
+ * of the modules sitting beside it, since such a barrel republishes the
+ * folder listing instead of choosing a facade. Sibling eligibility is read
+ * from disk rather than the import graph, so never-imported modules count.
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { type ArchitectureDiagnostic, type ResolvedArchitectureOptions, SOURCE_EXTENSIONS, stripKnownExtension  } from "../project/api/index.js";
 
+/**
+ * Flag each index file that re-exports enough of its sibling modules - both
+ * an absolute count and a share of the eligible ones - to be an inventory
+ * listing rather than a facade. Files other than `index.*` are skipped.
+ * @param sourceFiles Program files to scan; each index file is compared
+ * against the directory it actually sits in.
+ * @param options Both barrel thresholds, plus whether type-only re-exports
+ * count toward them.
+ * @returns One warning per offending barrel, quoting its exported-versus-
+ * eligible counts; empty when no barrel crosses both thresholds.
+ */
 export function checkInventoryBarrels(
   sourceFiles: readonly ts.SourceFile[],
   options: ResolvedArchitectureOptions,

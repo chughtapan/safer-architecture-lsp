@@ -1,3 +1,10 @@
+/**
+ * @file Manifest-level package-API checks. Reads the flattened `exports`
+ * entries and reports public paths that publish internal, wildcard,
+ * test-only, or implementation-shaped targets. Nothing here reads the source
+ * graph, so these checks run from `package.json` alone.
+ */
+
 import {
   type ArchitectureDiagnostic,
   collectPackageExportEntries,
@@ -5,6 +12,18 @@ import {
   type PackageJson, type ResolvedArchitectureOptions, stripKnownExtension 
 } from "../project/api/index.js";
 
+/**
+ * Run every manifest-level export check and concatenate their diagnostics.
+ * Each entry is judged on its public path and on its target path, so an
+ * innocuous public name over an internal target is still reported.
+ * @param packageJson Manifest whose `exports` (or `main` / `types`) entries
+ * are flattened and judged.
+ * @param options Allow-lists and budgets deciding which path segments count
+ * as internal, implementation-shaped, or over budget.
+ * @param reportFile Path the diagnostics are attributed to, since a manifest
+ * finding has no source position of its own.
+ * @returns Diagnostics from all five checks, in check order.
+ */
 export function checkPackageExports(
   packageJson: PackageJson,
   options: ResolvedArchitectureOptions,

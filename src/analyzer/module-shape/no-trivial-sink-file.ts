@@ -1,3 +1,10 @@
+/**
+ * @file Detection of trivial sink files: a near-empty module with one or two
+ * exports that exactly one file actually uses, where the extra hop buys the
+ * reader nothing. Barrels and files whose only consumers re-export them are
+ * exempt, since indirection is the whole point of those.
+ */
+
 import type {
   ExportConsumer,
   ProjectArchitectureGraph,
@@ -12,6 +19,16 @@ import {
 const MAX_EXPORTED_SYMBOLS = 2;
 const MAX_TOP_LEVEL_STATEMENTS = 5;
 
+/**
+ * Report modules whose whole surface could move to their single call site:
+ * one or two exports, at most five top-level statements, and exactly one
+ * consuming file that imports the symbols rather than re-exporting them.
+ * @param graph Supplies the module list and the consumer records that say
+ * who reaches each export and whether they use or forward it.
+ * @param options Facade allowlist; a listed file keeps its indirection.
+ * @returns One warning per removable sink file, naming its lone consumer;
+ * empty when no file is both trivial and single-consumer.
+ */
 export function trivialSinkFileDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,

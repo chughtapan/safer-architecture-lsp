@@ -1,3 +1,10 @@
+/**
+ * @file Rule-option resolution. Turns whatever an ESLint config supplies
+ * into the validated, absolute-path shape the analysis passes read, and
+ * rejects domain configurations whose ownership would be ambiguous —
+ * duplicate names, overlapping roots, entrypoints outside their own roots.
+ */
+
 import { Data, Either } from "effect";
 import { ArrayFormatter } from "effect/ParseResult";
 import path from "node:path";
@@ -24,7 +31,11 @@ class ArchitectureOptionsError extends Data.TaggedError("ArchitectureOptionsErro
   readonly issues: readonly ArchitectureOptionsIssue[];
 }> {}
 
-// projectRoot is guaranteed absolute, tsconfigPath either resolved or null.
+/**
+ * Options after resolution: `projectRoot` is guaranteed absolute and
+ * `tsconfigPath` is either resolved against it or null, so no pass has to
+ * re-resolve a path against the process working directory.
+ */
 export interface ResolvedArchitectureOptions
   extends Omit<ArchitectureOptions, "projectRoot" | "tsconfigPath"> {
   readonly projectRoot: string;
@@ -159,6 +170,17 @@ function domainConfigurationError(message: string): never {
   });
 }
 
+/**
+ * Decode the rule options an ESLint config supplies and resolve their paths
+ * against the project root. Throws `ArchitectureOptionsError` listing every
+ * offending field when the options fail schema or domain validation, so a
+ * misconfiguration surfaces as a message rather than as silent under-analysis.
+ * @param raw Options as written in the ESLint config; defaults fill the rest.
+ * @param overrideProjectRoot Root that wins over the configured one, for
+ * callers that already know which workspace is being analyzed.
+ * @returns Options with an absolute project root and a resolved or null
+ * tsconfig path.
+ */
 export function resolveArchitectureOptions(
   raw: unknown = {},
   overrideProjectRoot?: string,
@@ -175,4 +197,8 @@ export function resolveArchitectureOptions(
   };
 }
 
+/**
+ * Forwarded so a consumer can type its ESLint config against the options
+ * without reaching past this module into the schema itself.
+ */
 export type { ArchitectureOptionsInput } from "./config-schema.js";

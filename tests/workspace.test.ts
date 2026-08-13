@@ -1,3 +1,11 @@
+/**
+ * @file Checks workspace discovery and the cross-package check layered on it:
+ * manifests whose package roots escape the workspace are rejected, a root with
+ * no manifest degrades to a single named project, and a valid workspace yields
+ * one merged report with deterministic package cycles. The merged cases shell
+ * out to the built CLI, so dist must be current before they run.
+ */
+
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

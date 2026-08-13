@@ -27,6 +27,11 @@ import {
 } from "../module-symbols.js";
 import { CachedModuleResolver } from "../specifier-resolution.js";
 
+/**
+ * Graph vocabulary re-exported at the point of construction, so a consumer of
+ * the builder does not also have to import the project model to name its
+ * result.
+ */
 export type {
   FolderEdge,
   LocalModuleEdge,
@@ -47,7 +52,9 @@ export type {
  * @param options Resolved architecture options.
  * @param reportFile File path used as the diagnostic target when a
  * finding has no natural single file.
- * @param compilerOptions
+ * @param compilerOptions TypeScript options handed to module resolution so
+ * `paths` aliases and extension rules behave as they do in the real build;
+ * the empty default suits fixture programs with no tsconfig.
  * @returns The fully-populated project architecture graph.
  */
 export function buildProjectGraph(

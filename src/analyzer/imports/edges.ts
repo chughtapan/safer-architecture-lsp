@@ -1,3 +1,11 @@
+/**
+ * @file Module-edge extraction from one source file. Every import and every
+ * re-export with a specifier becomes either a local edge, when the specifier
+ * resolves to a file inside the project, or an external package edge.
+ * Type-only and side-effect-only specifiers are flagged here because the
+ * architecture rules downstream weigh them differently from value imports.
+ */
+
 import path from "node:path";
 import ts from "typescript";
 import type {
@@ -7,6 +15,11 @@ import type {
 } from "../project/index.js";
 import type { CachedModuleResolver } from "./specifier-resolution.js";
 
+/**
+ * The two disjoint edge sets one source file contributes to the project
+ * graph: dependencies on other project files, and dependencies on installed
+ * packages.
+ */
 export interface ModuleEdges {
   readonly localEdges: readonly LocalModuleEdge[];
   readonly externalEdges: readonly ExternalModuleEdge[];
@@ -21,6 +34,15 @@ interface SpecifierEdgeContext {
   readonly sideEffectOnly: boolean;
 }
 
+/**
+ * Split a file's top-level module specifiers into project-local and external
+ * edges. A specifier that neither resolves to a project file nor names a
+ * package is dropped rather than reported, so unresolvable paths cannot
+ * manufacture phantom dependencies.
+ * @param sourceFile File whose import and re-export statements are read.
+ * @param resolver Decides whether a specifier lands inside the project.
+ * @returns Both edge sets, in the order the statements appear.
+ */
 export function collectModuleEdges(
   sourceFile: ts.SourceFile,
   resolver: CachedModuleResolver,

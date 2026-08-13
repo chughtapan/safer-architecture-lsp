@@ -1,3 +1,9 @@
+/**
+ * @file Manifest reading. Narrows a project's `package.json` down to the
+ * fields the architecture rules consult, and supplies an empty stand-in so
+ * a project without a manifest still analyzes instead of failing.
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import type { PackageJson } from "./diagnostics/index.js";
@@ -7,6 +13,14 @@ interface JsonObject {
   readonly [key: string]: unknown;
 }
 
+/**
+ * Read a project's manifest and keep only the name, entrypoint, dependency,
+ * and subpath fields the architecture rules reason about. Null signals that
+ * there is nothing to read, which callers turn into an empty manifest.
+ * @param projectRoot Directory the `package.json` is looked for in.
+ * @returns The narrowed manifest, or null when the file is absent or does
+ * not hold a JSON object.
+ */
 export function readPackageJson(projectRoot: string): PackageJson | null {
   const packageJsonPath = path.join(projectRoot, "package.json");
   if (!fs.existsSync(packageJsonPath)) {return null;}
@@ -26,6 +40,11 @@ export function readPackageJson(projectRoot: string): PackageJson | null {
   };
 }
 
+/**
+ * Stand in for a project with no readable manifest, so passes can iterate
+ * the dependency and subpath maps without first testing for their absence.
+ * @returns A manifest whose maps are empty and whose entrypoints are unset.
+ */
 export function emptyPackageJson(): PackageJson {
   return {
     imports: new Map(),
@@ -56,7 +75,9 @@ function readStringMap(value: unknown): ReadonlyMap<string, string> {
  * Parse the Node subpath-imports (`imports`) field into each `#` key's
  * flat list of leaf target strings, descending through condition maps
  * and arrays. Non-`#` keys are ignored (Node rejects them).
- * @param value
+ * @param value Raw `imports` field, of whatever shape the manifest gave it.
+ * @returns Each `#` key paired with its leaf targets; keys that resolve to
+ * no target are dropped.
  */
 function readImportsMap(value: unknown): ReadonlyMap<string, readonly string[]> {
   if (!isJsonObject(value)) {return new Map();}

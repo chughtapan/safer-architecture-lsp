@@ -1,3 +1,10 @@
+/**
+ * @file Explicit folder-API requirement. Records, for every folder, which
+ * outside modules reach directly into its concrete files and which go through
+ * its facade, then flags folders consumed as an API without declaring one.
+ * Test-like, generated and shared-kernel folders are left out of the evidence.
+ */
+
 import path from "node:path";
 import type {
   LocalModuleEdge,
@@ -29,6 +36,18 @@ interface ModulePair {
   readonly toModule: SourceModule;
 }
 
+/**
+ * Report folders that outside code consumes through too many concrete files
+ * instead of a facade. A folder whose facade already serves the dominant
+ * share of its consumers is spared, so a folder part-way through adopting
+ * one is not flagged.
+ * @param graph Modules and local import edges the per-folder evidence is
+ * accumulated from; each import also counts against the target's ancestors.
+ * @param options Declared facade files, shared-folder exemptions and the
+ * concrete-file count at which a folder counts as an API.
+ * @returns One warning per folder, anchored on its lowest-sorted concrete
+ * file so the reported location does not vary between runs.
+ */
 export function explicitFolderApiDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,

@@ -1,3 +1,11 @@
+/**
+ * @file Exported-symbol and export-consumer extraction. Two questions are
+ * answered from source text alone: which names a file exports, and which of
+ * those names each importer actually reaches for. Named imports, named
+ * re-exports, and members read off a namespace import all count, so a rule
+ * can tell a genuinely used export from one that is merely re-exported.
+ */
+
 import path from "node:path";
 import ts from "typescript";
 import type { ExportConsumer } from "../project/index.js";
@@ -13,6 +21,13 @@ interface NamespaceImportBinding extends ImportTargetContext {
   readonly localName: string;
 }
 
+/**
+ * List the names a file exports, across export declarations, export
+ * assignments, and declarations carrying an `export` modifier. Anonymous
+ * default exports are recorded under the name `default`.
+ * @param sourceFile File whose top-level statements are inspected.
+ * @returns Deduplicated names in sorted order, so the result does not follow statement order.
+ */
 export function collectExportedSymbolNames(sourceFile: ts.SourceFile): readonly string[] {
   const symbols = new Set<string>();
   for (const statement of sourceFile.statements) {
@@ -21,6 +36,14 @@ export function collectExportedSymbolNames(sourceFile: ts.SourceFile): readonly 
   return [...symbols].sort();
 }
 
+/**
+ * Record who uses which export of which project file. A namespace import
+ * contributes one record per member actually accessed rather than one for the
+ * whole module, so wildcard access does not read as using everything.
+ * @param sourceFiles Files scanned for uses of project-local exports.
+ * @param resolver Maps a specifier onto the project file it names; unresolved specifiers are skipped.
+ * @returns Consumer records ordered by target file, export name, consumer file, and kind.
+ */
 export function collectExportConsumers(
   sourceFiles: readonly ts.SourceFile[],
   resolver: CachedModuleResolver,

@@ -1,4 +1,3 @@
-// safer-arch-ignore no-trivial-sink-file: child-process lifecycle is a deliberate seam; folding it into the multiplexer would tangle spawn/kill handling with routing logic.
 /**
  * @file One child language server. Index 0 is the PRIMARY, authoritative
  * for language features; every other backend is a diagnostics-only
@@ -13,15 +12,28 @@ import type { BackendSpec } from "./config.js";
 import { encodePacket, FrameDecoder, type Message } from "./framing.js";
 import { log } from "./log.js";
 
+// safer-arch-ignore no-trivial-sink-file: child-process lifecycle is a deliberate seam; folding it into the multiplexer would tangle spawn/kill handling with routing logic.
+
 /** A sidecar buffers at most this many bytes before it starts dropping. */
 const MAX_SIDECAR_BUFFER = 4 * 1024 * 1024;
 
+/**
+ * The owner's side of a backend: decoded messages, the backend going down, and
+ * failures attributed to it. Every callback carries the backend index, which is
+ * what lets the owner treat a primary failure as fatal and a sidecar's as
+ * survivable.
+ */
 export interface BackendHandlers {
   onMessage(index: number, message: Message): void;
   onClosed(index: number): void;
   onError(index: number, detail: string): void;
 }
 
+/**
+ * A spawned language server plus the state the proxy keeps about it: its latest
+ * diagnostics per URI, whether it has been dropped, and how it exited. Writes
+ * take the primary or sidecar path described in the file overview.
+ */
 export class Backend {
   readonly diagnostics = new Map<string, unknown[]>();
   dropped = false;

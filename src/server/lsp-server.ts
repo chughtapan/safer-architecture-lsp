@@ -141,8 +141,10 @@ const sendMergedDiagnostics = (
 
 /**
  * A file-level error diagnostic built outside the analyzer (config problems, engine crashes).
- * @param code
- * @param message
+ * @param code Stable identifier for the failure kind, so clients can group
+ * and filter these the way they do analyzer findings.
+ * @param message Text shown to the user; says what coverage was lost.
+ * @returns A diagnostic anchored to the first character of the file.
  */
 const serverErrorDiagnostic = (code: string, message: string): Diagnostic => ({
   range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
@@ -158,8 +160,10 @@ const serverErrorDiagnostic = (code: string, message: string): Diagnostic => ({
  * explicit empty publish so stale squiggles clear. Engine failures are
  * surfaced as an error diagnostic on the workspace's config path —
  * a crashed analysis must never present as "architecture clean".
- * @param deps
- * @param engine
+ * @param deps Holds the connection and the record of what this workspace
+ * published last, which decides what has to be cleared.
+ * @param engine Workspace whose full report is recomputed now.
+ * @returns Effect completing once every affected URI has been sent.
  */
 const publishWorkspace = (
   deps: ServerDeps,
@@ -229,8 +233,11 @@ const handleInitialize = (): InitializeResult => ({
  * Register (or re-register) one workspace: load its config file, build
  * the engine, surface config problems as a diagnostic on the config
  * file, wire the invalidation stream, and publish the initial report.
- * @param deps
- * @param root
+ * @param deps Registry the engine is recorded in and connection the
+ * initial diagnostics go out on.
+ * @param root Project root whose config file and engine are (re)loaded.
+ * @returns Effect completing after the first report is published; the
+ * required `Scope` owns the engine and its invalidation subscriber.
  */
 const attachProject = (
   deps: ServerDeps,
@@ -266,8 +273,11 @@ const attachProject = (
 
 /**
  * Tear the workspace down and clear everything it ever published.
- * @param deps
- * @param root
+ * @param deps Source of the project's last published set, which is what
+ * has to be republished as empty.
+ * @param root Project root to unregister.
+ * @returns Effect completing once the engine is released and its
+ * squiggles are gone from every file it had touched.
  */
 const detachProject = (deps: ServerDeps, root: string): Effect.Effect<void> =>
   Effect.gen(function* () {
@@ -283,10 +293,14 @@ const detachProject = (deps: ServerDeps, root: string): Effect.Effect<void> =>
   });
 
 /**
- * Rebuild the workspace's engine after a config change.
- * @param deps
- * @param root
- * @param diagnosticsByUri
+ * Publish the findings that belong to the workspace itself rather than
+ * to any one project (bad manifest, package cycles), clearing every URI
+ * that dropped out of the previous set. Kept separate from project
+ * diagnostics so either side can be replaced without erasing the other.
+ * @param deps Holds this root's last workspace-level publish.
+ * @param root Client workspace folder the findings are recorded under.
+ * @param diagnosticsByUri Findings to publish now, keyed by document URI.
+ * @returns Effect completing once every affected URI has been sent.
  */
 const publishWorkspaceDiagnostics = (
   deps: ServerDeps,
@@ -425,9 +439,13 @@ function scheduleWorkspaceReload(
  * Watch the workspace's config file so edits take effect without a
  * server restart. The watcher lives outside the engine's child scope
  * (it triggers engine replacement) and is closed on detach/shutdown.
- * @param deps
- * @param root
- * @param runInScope
+ * @param deps Where the watcher, its debounce timer, and the lock that
+ * serializes reloads are registered.
+ * @param root Workspace root whose manifest, config, and package files
+ * are watched, including those of its member projects.
+ * @param runInScope Escape hatch for the chokidar callback, which has no
+ * Effect context of its own, to run a reload under the server's scope.
+ * @returns Effect that installs the watcher and closes it on release.
  */
 const watchWorkspaceConfig = (
   deps: ServerDeps,
@@ -557,8 +575,10 @@ const setupTextHandlers = (deps: ServerDeps): void => {
  * Folder add/remove handling. Registered only when the client
  * advertised `workspace.workspaceFolders` support — the vscode
  * languageserver workspace proxy throws otherwise.
- * @param deps
- * @param runInScope
+ * @param deps Server state each added folder is attached to and each
+ * removed folder — watcher, timer, and lock included — is stripped from.
+ * @param runInScope Runs the attach or detach work under the server's
+ * scope, since the folder-change callback is outside the Effect runtime.
  */
 const setupWorkspaceFolderHandler = (
   deps: ServerDeps,

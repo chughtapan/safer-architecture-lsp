@@ -1,3 +1,10 @@
+/**
+ * @file External-reach fast path for the public-type checks. Answers, per
+ * source file, whether anything it declares could name a symbol from
+ * outside the package, so the type-leak pass can skip the deep semantic
+ * walk on files whose import closure is provably package-local.
+ */
+
 import path from "node:path";
 import ts from "typescript";
 import type {
@@ -24,9 +31,14 @@ interface FileReach {
  * targeted syntax scanning covers constructs that graph intentionally
  * does not model. Files outside the project SourceFile identity set
  * always answer true — a vendor re-export must never be skipped.
- * @param program
- * @param graph
- * @param externalPackageForSpecifier
+ * @param program Supplies the checker and the whole-program scan for
+ * ambient globals that would defeat every per-file proof.
+ * @param graph Canonical statement edges and the project root the
+ * candidate file set is taken from.
+ * @param externalPackageForSpecifier Classifies a raw specifier, so `#`
+ * subpaths that map back into the package stay internal here.
+ * @returns A predicate that answers false only for files whose entire
+ * known import closure stays inside the package.
  */
 export function buildExternalTypeReach(
   program: ts.Program,
@@ -72,8 +84,12 @@ export function buildExternalTypeReach(
  * mark backwards along relative-import edges to a fixpoint. Reverse
  * multi-source reachability is cycle-safe, unlike depth-first memoization
  * with an on-stack guard.
- * @param projectFiles
- * @param scanned
+ * @param projectFiles Every candidate file, used both as seed set and as
+ * the domain the reverse edge index is built over.
+ * @param scanned Per-file external flag and package-local import targets,
+ * as classified against the canonical graph.
+ * @returns The files that reach an external import, directly or through
+ * something they import.
  */
 function markReachesExternal(
   projectFiles: readonly ts.SourceFile[],
@@ -113,7 +129,9 @@ function markReachesExternal(
  * augmentations, and UMD `export as namespace` declarations. Any one of
  * them defeats a per-file import-closure proof, so disable the fast path
  * for the whole Program.
- * @param program
+ * @param program Inspected in full, vendor declaration files included,
+ * since one such declaration anywhere invalidates every per-file proof.
+ * @returns True when the fast path must be disabled for this Program.
  */
 function hasUntrackedAmbientGlobals(program: ts.Program): boolean {
   for (const sourceFile of program.getSourceFiles()) {
@@ -231,7 +249,10 @@ function graphFileReach(
  * forces the semantic walk. This also covers relative and `#` forms:
  * without a canonical edge for them, their transitive closure cannot be
  * proven package-local.
- * @param file
+ * @param file Scanned whole, including JSDoc type positions and the
+ * file-level reference directives the graph never records.
+ * @returns True when the file names a module in a form the canonical
+ * graph does not carry an edge for.
  */
 function hasNonStatementModuleReference(file: ts.SourceFile): boolean {
   if (
@@ -313,9 +334,13 @@ function isJavaScriptSourceFile(file: ts.SourceFile): boolean {
  * and malformed specifiers; those are not proof of a package-local
  * closure, so they must conservatively force the semantic walk. Resolution
  * itself remains owned by the graph.
- * @param file
- * @param module
- * @param checker
+ * @param file Source of the statement list the graph edges are checked
+ * against.
+ * @param module Graph edges for this file, treated as the complete record
+ * of its statement imports and re-exports.
+ * @param checker Second opinion on where a specifier actually resolves.
+ * @returns True when a statement specifier is absent from the graph or
+ * resolves somewhere the graph did not record.
  */
 function hasUncertainStatementModuleReference(
   file: ts.SourceFile,
@@ -359,9 +384,13 @@ function hasUncertainStatementModuleReference(
  * small path resolver can disagree with TypeScript when extension
  * substitution, moduleSuffixes, or rootDirs are in play. Such a mismatch
  * invalidates the graph as a proof of locality, so fail open.
- * @param moduleSpecifier
- * @param graphTargets
- * @param checker
+ * @param moduleSpecifier Statement literal whose resolution is under
+ * comparison; its location is what the checker resolves from.
+ * @param graphTargets Absolute paths the graph recorded for this
+ * specifier.
+ * @param checker Supplies TypeScript's own resolution of the same
+ * specifier.
+ * @returns True only when both resolutions name exactly the same files.
  */
 function moduleSpecifierMatchesGraphTarget(
   moduleSpecifier: ts.StringLiteral,

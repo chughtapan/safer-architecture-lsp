@@ -1,3 +1,10 @@
+/**
+ * @file Public-API vendor type-leak checks. Reports exports and
+ * re-exports whose types resolve into a package the contract does not
+ * declare public, and raises a second diagnostic when that package is
+ * configured as infrastructure.
+ */
+
 import ts from "typescript";
 import type { ProjectArchitectureGraph } from "../project/index.js";
 import {
@@ -16,6 +23,21 @@ interface TypeVisitContext {
   readonly visit: (type: ts.Type, depth: number) => void;
 }
 
+/**
+ * Report every public-API re-export or exported signature whose type
+ * reaches a package that is not allowed in public types. Files that
+ * cannot reach anything outside the package are skipped before the deep
+ * type walk, and resolved types are shared across the public files.
+ * @param program Supplies the checker and the set of public-API files.
+ * @param graph Backs the reachability fast path that skips files with a
+ * package-local import closure.
+ * @param packageJson Decides which specifiers name a vendor package, and
+ * downgrades a peer dependency's leak to a warning.
+ * @param options Public and infrastructure package lists plus the
+ * declared package runtime.
+ * @returns Deduplicated diagnostics; empty when no public type names a
+ * disallowed package.
+ */
 export function checkPublicVendorTypeLeaks(
   program: ts.Program,
   graph: ProjectArchitectureGraph,
@@ -91,8 +113,12 @@ function packageNameFromSpecifier(specifier: string): string | null {
  * (like a relative import) and returns null; one that maps only to a
  * bare package resolves to that vendor package name. Non-`#` specifiers
  * keep the plain package-name classification.
- * @param specifier
- * @param packageJson
+ * @param specifier Module specifier exactly as written in the source, not
+ * the graph's already-classified package name.
+ * @param packageJson Read only for its `imports` map, which is what turns
+ * a `#` specifier into concrete targets.
+ * @returns The vendor package the specifier belongs to, or null when it
+ * resolves inside this package.
  */
 export function publicTypePackageForSpecifier(
   specifier: string,
@@ -161,6 +187,17 @@ function normalizeTypePackageName(packageName: string): string {
   return scopedMatch ? `@${scopedMatch[1]}/${scopedMatch[2]}` : withoutPrefix;
 }
 
+/**
+ * Whether a package may appear in the public type surface. Node's own
+ * types are tolerated for a node-runtime package without being listed;
+ * every other package has to be declared explicitly, so a new vendor
+ * dependency cannot enter the contract by accident.
+ * @param packageName Vendor package name as classified from a specifier
+ * or from a declaring file under `node_modules`.
+ * @param options Carries the declared public-type packages and the
+ * runtime the package targets.
+ * @returns True when the package is part of the published contract.
+ */
 export function packageAllowedInPublicTypes(
   packageName: string,
   options: Pick<ResolvedArchitectureOptions, "packageRuntime" | "publicTypePackages">,

@@ -1,3 +1,10 @@
+/**
+ * @file Checks that the import graph follows the same module resolution
+ * TypeScript itself performs. Both tsconfig path aliases and package.json
+ * subpath imports must land on local files, so a cycle hidden behind an
+ * alias is still reported as a cycle.
+ */
+
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { buildProjectGraph } from "../src/analyzer/imports/project-graph/index.js";

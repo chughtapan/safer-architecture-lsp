@@ -4,6 +4,11 @@
  * analysis passes consume.
  */
 
+/**
+ * Source-model surface the analysis passes work against: module
+ * classification predicates, path normalization, set comparison, and the
+ * graph types that carry modules and folder edges between passes.
+ */
 export {
   explicitFacadeModule,
   type ExportConsumer,

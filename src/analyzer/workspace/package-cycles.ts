@@ -1,3 +1,10 @@
+/**
+ * @file Cross-package cycle detection for a workspace. Only dependencies naming
+ * another package of the same workspace become edges, so third-party packages
+ * can never appear in a cycle, and each cycle is reported once against the
+ * package.json of whichever member sorts first.
+ */
+
 import type { ArchitectureDiagnostic } from "../project/diagnostics/index.js";
 import type { DiscoveredWorkspace, WorkspaceProject } from "./manifest.js";
 import { makeDirectedGraph } from "../graph/directed-graph.js";
@@ -11,6 +18,15 @@ interface PackageEdge {
   readonly to: string;
 }
 
+/**
+ * Report one diagnostic per group of workspace packages that depend on each
+ * other at runtime, directly or through other members of the group. A root with
+ * no manifest is a single package and can hold no cross-package cycle.
+ * @param workspace Packages whose runtime dependencies are matched against each
+ * other by package name; dependencies on non-members are ignored.
+ * @returns One diagnostic per cycle, naming the members and a canonical path
+ * through them so repeated runs report the same cycle the same way.
+ */
 export function workspacePackageCycleDiagnostics(
   workspace: DiscoveredWorkspace,
 ): readonly ArchitectureDiagnostic[] {

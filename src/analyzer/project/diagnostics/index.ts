@@ -10,14 +10,17 @@ import type { ModuleResolutionSnapshotEntry } from "../source-model/graph-model.
 /** Severity reported by an architecture diagnostic. */
 export type ArchitectureSeverity = "error" | "warn";
 
+/** The rule-id union, re-exported so diagnostics can be typed against it. */
 export type { ArchitectureDiagnosticRuleId } from "../../rule-ids.js";
 
+/** Config shapes a diagnostic message needs to name what it checked. */
 export type {
   CompositionRoot,
   DomainDefinition,
   DomainOwnership,
   LayerDefinition,
 } from "../config-schema.js";
+/** Fully defaulted options every analysis pass is handed. */
 export type { ResolvedArchitectureOptions } from "../config.js";
 
 /** A single architecture finding pointed at one file. */

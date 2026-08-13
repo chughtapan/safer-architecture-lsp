@@ -1,3 +1,10 @@
+/**
+ * @file Graph-level public-surface checks. Judges the modules a package
+ * actually publishes: export-star boundaries, export and re-export budgets,
+ * facade curation, test-helper leaks, and vendor names escaping through
+ * public declarations.
+ */
+
 import path from "node:path";
 import ts from "typescript";
 import {
@@ -10,6 +17,21 @@ import { exportedDeclarationName, hasExportModifier,
   type SourceModule } from "../project/index.js";
 import { packageAllowedInPublicTypes, publicTypePackageForSpecifier } from "../type-surface/index.js";
 
+/**
+ * Run every public-surface check over the published modules and merge the
+ * results. Findings are de-duplicated, so a module that trips the same check
+ * through two statements is reported once.
+ * @param graph Supplies the module classification the checks read: which
+ * modules are public, which are index facades, which are test-like, and how
+ * they re-export each other.
+ * @param sourceFiles Parsed files, required by the checks that inspect import
+ * and export statements rather than graph metadata.
+ * @param packageJson Separates declared dependencies from local specifiers
+ * when deciding whether a name is vendor-owned.
+ * @param options Surface budgets plus the allow-list of packages permitted to
+ * appear in public types.
+ * @returns Deduplicated diagnostics from all five checks.
+ */
 export function checkPublicSurface(
   graph: ProjectArchitectureGraph,
   sourceFiles: readonly ts.SourceFile[],

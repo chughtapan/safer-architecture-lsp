@@ -1,3 +1,10 @@
+/**
+ * @file Analysis program and source-file selection. Builds the TypeScript
+ * program the passes read, scoped to the workspace rather than to whatever
+ * tsconfig happens to sit above it, and narrows its files down to the
+ * project's own code and to the surface its package exports.
+ */
+
 import path from "node:path";
 import ts from "typescript";
 import type { PackageJson, ResolvedArchitectureOptions } from "./diagnostics/index.js";
@@ -11,6 +18,15 @@ const PUBLIC_ENTRYPOINT_CANDIDATES = [
   "index.tsx",
 ] as const;
 
+/**
+ * Build the program every analysis pass reads, from the configured tsconfig
+ * or the nearest one above the project root. Null means analysis cannot
+ * run; `programHealth` reports which of the two causes applies.
+ * @param options Resolved rule options naming the project root and tsconfig.
+ * @param oldProgram Program from the previous run, whose unchanged source
+ * files are reused so a rebuild stays incremental.
+ * @returns The analysis program, or null when no usable tsconfig was found.
+ */
 export function createProgram(
   options: ResolvedArchitectureOptions,
   oldProgram?: ts.Program,
@@ -50,7 +66,8 @@ export function createProgram(
  * symbols but does not need to validate dependency declarations. These
  * are isolation safeguards; root-file scoping reduces cold cost, while
  * previous-program reuse speeds incremental rebuilds.
- * @param base
+ * @param base Compiler options as parsed from the project's tsconfig.
+ * @returns The same options with build and emit behaviour stripped out.
  */
 function analysisOptions(base: ts.CompilerOptions): ts.CompilerOptions {
   const inherited = { ...base };
@@ -78,6 +95,13 @@ export interface ProgramHealth {
   readonly detail: string;
 }
 
+/**
+ * Restate a null from `createProgram` as something a user can act on,
+ * naming the tsconfig that was consulted and what went wrong with it.
+ * @param options Resolved rule options naming the project root and tsconfig.
+ * @returns An "ok" status, or the missing or unparseable case with the
+ * config path and a readable cause.
+ */
 export function programHealth(options: ResolvedArchitectureOptions): ProgramHealth {
   const configPath =
     options.tsconfigPath ??
@@ -108,6 +132,16 @@ export function programHealth(options: ResolvedArchitectureOptions): ProgramHeal
   return { status: "ok", configPath, detail: "" };
 }
 
+/**
+ * Pick out the project's own code from everything the program loaded,
+ * dropping declaration files and dependencies pulled in transitively.
+ * The result is sorted by path so diagnostics come out in the same order
+ * whatever order the compiler happened to load files in.
+ * @param program Program whose loaded files are filtered.
+ * @param projectRoot Directory a file must sit under to count as the
+ * project's own.
+ * @returns The project's source files, ordered lexicographically by path.
+ */
 export function projectSourceFiles(
   program: ts.Program,
   projectRoot: string,
@@ -119,6 +153,15 @@ export function projectSourceFiles(
     .sort((left, right) => left.fileName.localeCompare(right.fileName));
 }
 
+/**
+ * Choose where package-wide diagnostics get attached, preferring a
+ * conventional entrypoint so the finding surfaces at the file a reader
+ * would look in. Falls back to the first project file and then to
+ * `package.json`, because a diagnostic always needs somewhere to land.
+ * @param sourceFiles Project files a report location may be drawn from.
+ * @param projectRoot Root the entrypoint candidates resolve against.
+ * @returns Absolute path to report package-wide findings against.
+ */
 export function findPackageReportFile(
   sourceFiles: readonly ts.SourceFile[],
   projectRoot: string,
@@ -137,6 +180,16 @@ export function findPackageReportFile(
   );
 }
 
+/**
+ * Collect the source files a consumer of the package can reach, by mapping
+ * each declared export target back to the file it is built from. A manifest
+ * that declares no exports falls back to the conventional entrypoints, so
+ * an unpublished project still has a public surface to check.
+ * @param program Program supplying the project's source files.
+ * @param packageJson Manifest whose export targets are traced back to source.
+ * @param options Resolved rule options naming the project root.
+ * @returns The public-surface files; empty when nothing resolves to source.
+ */
 export function publicApiSourceFiles(
   program: ts.Program,
   packageJson: PackageJson,

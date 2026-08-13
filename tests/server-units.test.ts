@@ -1,3 +1,10 @@
+/**
+ * @file Unit checks for the language server pieces that hold state: the
+ * open-document store, the grouping of findings into per-URI diagnostics,
+ * and the workspace registry. The registry case registers one root four
+ * times concurrently, since a repeat must reuse the engine, not build one.
+ */
+
 import { assert, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import path from "node:path";

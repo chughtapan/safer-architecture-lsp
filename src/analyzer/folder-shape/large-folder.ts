@@ -1,3 +1,10 @@
+/**
+ * @file Folder child-count budget. Measures each folder's direct children
+ * against three independent limits - production children, children including
+ * tests, and test children with no production counterpart - with per-folder
+ * overrides taking precedence over the project-wide defaults.
+ */
+
 import type { ProjectArchitectureGraph } from "../imports/index.js";
 import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 import {
@@ -18,6 +25,16 @@ interface FolderSizeStats {
   readonly maxUnpairedTestChildren: number;
 }
 
+/**
+ * Warn about every folder that exceeds any one of its three child-count
+ * limits. Unpaired tests are counted separately so that tests sitting beside
+ * the code they exercise do not, on their own, push a folder over budget.
+ * @param graph Modules and folders whose direct children are counted.
+ * @param options Project-wide child limits and the per-folder overrides that
+ * replace them.
+ * @returns One warning per over-budget folder, naming its alphabetically
+ * first six children as evidence; empty when every folder fits.
+ */
 export function folderChildLimitDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,

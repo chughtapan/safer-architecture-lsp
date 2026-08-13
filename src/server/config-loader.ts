@@ -11,8 +11,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { type ArchitectureOptionsInput, resolveArchitectureOptions } from "../analyzer/project/api/index.js";
 
+/** Name looked for at the workspace root, and the file a config problem is reported against. */
 export const CONFIG_FILE_NAME = "safer-architecture.config.json";
 
+/**
+ * Outcome of one config lookup: the options to analyze with, where they
+ * came from, and the problem to surface when the file was present but
+ * unusable.
+ */
 export interface LoadedWorkspaceConfig {
   /** Raw options to pass to the registry (empty when defaults apply). */
   readonly options: ArchitectureOptionsInput;
@@ -28,6 +34,14 @@ export interface LoadedWorkspaceConfig {
   readonly problem: string | null;
 }
 
+/**
+ * Read the workspace config file, if any, and check it against the
+ * options schema. An absent file resolves to defaults quietly; a present
+ * but unreadable, malformed, or schema-invalid one also resolves to
+ * defaults but carries the reason, so a typo cannot quietly relax rules.
+ * @param projectRoot Workspace root the config file is looked up under.
+ * @returns Options for the registry, their origin, and any problem found.
+ */
 export function loadWorkspaceConfig(projectRoot: string): LoadedWorkspaceConfig {
   const configPath = path.join(projectRoot, CONFIG_FILE_NAME);
   if (!fs.existsSync(configPath)) {

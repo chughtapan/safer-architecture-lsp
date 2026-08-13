@@ -1,3 +1,11 @@
+/**
+ * @file Whole-workspace analysis. Runs the project analyzer once per
+ * listed workspace package, each under its own config, and merges those
+ * findings with the cross-package cycles no single project can see. An
+ * invalid manifest or package config fails the run instead of reporting
+ * partial coverage as clean.
+ */
+
 import path from "node:path";
 import {
   type ArchitectureAnalysisSnapshot,
@@ -23,6 +31,11 @@ interface WorkspaceProjectReport {
   readonly report: ArchitectureReport;
 }
 
+/**
+ * Everything one workspace analysis produced: the per-package reports
+ * alongside the deduplicated findings, waivers, and snapshots pooled
+ * across them, with the findings pre-indexed by file for lookup.
+ */
 export interface WorkspaceArchitectureReport {
   readonly root: string;
   readonly manifestPath: string | null;
@@ -33,13 +46,21 @@ export interface WorkspaceArchitectureReport {
   readonly snapshots: readonly ArchitectureAnalysisSnapshot[];
 }
 
+/**
+ * Either the merged report, or the first configuration problem that
+ * stopped the run together with the path a caller has to fix — callers
+ * must handle the failure rather than read an empty report as clean.
+ */
 export type WorkspaceAnalysisResult =
   | { readonly ok: true; readonly workspace: DiscoveredWorkspace; readonly report: WorkspaceArchitectureReport }
   | { readonly ok: false; readonly problem: string; readonly problemPath: string };
 
 /**
  * Analyze either one project or every explicitly listed workspace package.
- * @param root
+ * @param root Directory discovery starts from; a root without a workspace
+ * manifest is analyzed as a single project.
+ * @returns The merged report, or the first invalid manifest or package
+ * config with the path that has to be fixed.
  */
 export function analyzeWorkspaceRoot(root: string): WorkspaceAnalysisResult {
   const discovery = discoverWorkspace(root);

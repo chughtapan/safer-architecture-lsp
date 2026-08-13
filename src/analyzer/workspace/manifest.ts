@@ -1,9 +1,16 @@
+/**
+ * @file Workspace manifest reading. Turns a repository root into the packages
+ * the analyzer should treat as one workspace, refusing any manifest that would
+ * point analysis at a directory outside that root or at the same package twice.
+ */
+
 import { Either, Schema } from "effect";
 import { ArrayFormatter } from "effect/ParseResult";
 import fs from "node:fs";
 import path from "node:path";
 import { readPackageJson } from "../project/package-json.js";
 
+/** Manifest filename whose presence in a root makes it a multi-package workspace. */
 export const WORKSPACE_FILE_NAME = "safer-architecture.workspace.json";
 
 const NonEmptyString = Schema.String.pipe(Schema.minLength(1));
@@ -14,6 +21,11 @@ class WorkspaceManifest extends Schema.Class<WorkspaceManifest>(
   packages: Schema.Array(NonEmptyString),
 }) {}
 
+/**
+ * One package of a workspace. The name is the package.json name, falling back
+ * to the directory name; runtime dependencies merge `dependencies` and
+ * `peerDependencies` and are sorted so downstream graphs stay reproducible.
+ */
 export interface WorkspaceProject {
   readonly name: string;
   readonly root: string;
@@ -21,16 +33,37 @@ export interface WorkspaceProject {
   readonly runtimeDependencies: readonly string[];
 }
 
+/**
+ * The packages a workspace root resolved to, in name order. A null manifest
+ * path means no manifest was found and the root is its own single package,
+ * which is how cross-package checks tell the two shapes apart.
+ */
 export interface DiscoveredWorkspace {
   readonly workspaceRoot: string;
   readonly manifestPath: string | null;
   readonly projects: readonly WorkspaceProject[];
 }
 
+/**
+ * Outcome of reading a workspace root: the resolved packages, or the manifest
+ * that was rejected together with the reason, so callers can surface the
+ * problem against the manifest instead of analyzing a partial workspace.
+ */
 export type WorkspaceDiscovery =
   | { readonly ok: true; readonly workspace: DiscoveredWorkspace }
   | { readonly ok: false; readonly manifestPath: string; readonly problem: string };
 
+/**
+ * Expand a repository root into the packages the analyzer treats as one
+ * workspace; with no manifest present the root itself is the only package.
+ * Package roots that are absolute, escape the root (directly or through a
+ * symlink), duplicate another root or name, or are not directories are
+ * rejected rather than analyzed.
+ * @param workspaceRoot Directory searched for the manifest, and the base the
+ * manifest's relative package roots resolve against.
+ * @returns The packages sorted by name, or the manifest path and the reason it
+ * was refused.
+ */
 export function discoverWorkspace(workspaceRoot: string): WorkspaceDiscovery {
   const root = path.resolve(workspaceRoot);
   let canonicalRoot: string;

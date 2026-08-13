@@ -1,3 +1,10 @@
+/**
+ * @file Domain-boundary analysis. Assigns every production module to a
+ * configured domain, a composition root, or nobody, then reports ownership
+ * gaps, imports that reach past a domain's entrypoints, side-effect-only
+ * imports across domains, and cycles between domains.
+ */
+
 import path from "node:path";
 import type {
   ArchitectureDiagnostic,
@@ -22,6 +29,17 @@ interface DomainEdge {
   readonly source: SourceModule;
 }
 
+/**
+ * Report every domain-boundary violation in the project. A project with no
+ * configured domains opts out of all four rules rather than being reported
+ * as entirely unowned. Test-like modules are ignored on both ends of an edge.
+ * @param graph Modules and local import edges that ownership and the
+ * domain-level edge set are derived from.
+ * @param options Domains, explicit ownership overrides and composition roots
+ * that decide who owns each module; the longest matching root wins.
+ * @returns Diagnostics grouped by rule - ownership gaps, then domain cycles,
+ * entrypoint bypasses and cross-domain side effects.
+ */
 export function domainArchitectureDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,

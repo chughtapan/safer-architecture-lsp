@@ -1,3 +1,10 @@
+/**
+ * @file Detection of low-cohesion shared kernels: wide modules whose exports
+ * serve mostly disjoint groups of consumers. Cohesion is scored as the median
+ * Jaccard overlap over every pair of exports rather than an average, so one
+ * universally imported symbol cannot mask a grab bag of unrelated ones.
+ */
+
 import type {
   ExportConsumer,
   ProjectArchitectureGraph,
@@ -30,6 +37,18 @@ interface OverlapStats {
   readonly samples: readonly string[];
 }
 
+/**
+ * Report modules that many production files import for unrelated reasons.
+ * Only exports with production consumers are scored, and a module must clear
+ * both the export and consumer minimums before overlap is measured at all,
+ * so a small helper is never judged on two data points.
+ * @param graph Supplies the module list and the per-export consumer records
+ * the overlap score is computed from.
+ * @param options Minimum exports and consumers required before a module is
+ * scored, and the median overlap below which it is reported.
+ * @returns One warning per low-cohesion module, naming its least-overlapping
+ * export pairs; empty when every wide module's exports travel together.
+ */
 export function sharedKernelCohesionDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,

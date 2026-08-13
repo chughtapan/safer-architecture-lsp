@@ -1,3 +1,11 @@
+/**
+ * @file Detection of fat orchestrators: files that wire together a large
+ * slice of the project yet almost nobody imports. Entry points are supposed
+ * to look like this, so anything under bin/ or cli/, any index/main/cli or
+ * config file, and any public module is exempt — the complaint is about
+ * wiring hidden in the middle of the tree, not wiring as such.
+ */
+
 import type {
   ProjectArchitectureGraph,
   SourceModule,
@@ -18,6 +26,17 @@ const ENTRY_PATH_PATTERNS = [
   /\.config\.[cm]?[jt]sx?$/,
 ];
 
+/**
+ * Report non-entry modules shaped like wiring: at least 15 imports, at least
+ * 20 top-level statements, and at most one distinct consumer.
+ * @param graph Supplies the module list and each module's consumers, which a
+ * module's own record does not carry.
+ * @param _options Unused; the thresholds here are fixed constants. The
+ * parameter keeps the signature interchangeable with the other module-shape
+ * checks the barrel calls.
+ * @returns One warning per fat orchestrator; empty when every wiring-shaped
+ * file is reachable as an entry point.
+ */
 export function fatOrchestratorDiagnostics(
   graph: ProjectArchitectureGraph,
   _options: ResolvedArchitectureOptions,

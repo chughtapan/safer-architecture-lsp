@@ -14,6 +14,14 @@ export interface BackendSpec {
 /** Raised when the backend configuration is missing or not usable. */
 export class ConfigurationError extends Error {}
 
+/**
+ * Validate decoded JSON into launch vectors. Unknown per-backend fields are
+ * rejected rather than ignored, so a misspelled key fails loudly instead of
+ * silently launching a backend without the option its author intended.
+ * @param value Untrusted decoded JSON; anything but a non-empty array of
+ * `{cmd, args?}` objects is a `ConfigurationError`.
+ * @returns One spec per entry, in config order, so index 0 stays the primary.
+ */
 export function parseBackendSpecs(value: unknown): BackendSpec[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new ConfigurationError("configuration must be a non-empty array");
@@ -45,6 +53,13 @@ export function parseBackendSpecs(value: unknown): BackendSpec[] {
   });
 }
 
+/**
+ * Load and validate the config file. An unreadable file and unparsable JSON are
+ * reported the same way — as a `ConfigurationError` naming the path — so the
+ * CLI can exit with a usage code instead of a stack trace.
+ * @param configPath File to read; it is quoted back in every failure message.
+ * @returns One spec per configured backend, primary first.
+ */
 export function readBackendSpecs(configPath: string): BackendSpec[] {
   let raw: string;
   try {

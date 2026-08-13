@@ -34,6 +34,12 @@ function removeEntry(map: EngineMap, projectRoot: string): EngineMap {
   return next;
 }
 
+/**
+ * Handle over the live engines, one per project root. `register` is
+ * idempotent and hands back the existing engine, so repeated folder or
+ * config notifications for one root cannot leave a second watcher and
+ * cache running behind the first.
+ */
 export interface WorkspaceRegistry {
   readonly register: (
     projectRoot: string,
