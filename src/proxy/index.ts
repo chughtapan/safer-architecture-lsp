@@ -7,6 +7,7 @@
  * `--version` short-circuit before any backend is spawned.
  */
 
+import { Effect } from "effect";
 import { createRequire } from "node:module";
 import { ConfigurationError, readBackendSpecs } from "./config.js";
 import { log } from "./log.js";
@@ -32,52 +33,63 @@ function packageVersion(): string {
   ).version;
 }
 
-async function main(argv: string[]): Promise<number> {
-  const args = argv.slice(2);
-  if (args.includes("-h") || args.includes("--help")) {
-    process.stdout.write(USAGE);
-    return 0;
-  }
-  if (args.includes("-V") || args.includes("--version")) {
-    process.stdout.write(`${packageVersion()}\n`);
-    return 0;
-  }
+function main(argv: string[]): Effect.Effect<number> {
+  return Effect.gen(function* () {
+    const args = argv.slice(2);
+    if (args.includes("-h") || args.includes("--help")) {
+      process.stdout.write(USAGE);
+      return 0;
+    }
+    if (args.includes("-V") || args.includes("--version")) {
+      process.stdout.write(`${packageVersion()}\n`);
+      return 0;
+    }
 
-  const positional = args.filter((arg) => !arg.startsWith("-"));
-  if (positional.length !== 1) {
-    log("usage: safer-lsp-proxy <config.json>");
-    return 2;
-  }
-
-  let specs;
-  try {
-    specs = readBackendSpecs(positional[0]);
-  } catch (error) {
-    if (error instanceof ConfigurationError) {
-      log(error.message);
+    const positional = args.filter((arg) => !arg.startsWith("-"));
+    if (positional.length !== 1) {
+      log("usage: safer-lsp-proxy <config.json>");
       return 2;
     }
-    throw error;
-  }
 
-  const multiplexer = new Multiplexer(specs, {
-    name: "safer-lsp-proxy",
-    version: packageVersion(),
+    const outcome = yield* Effect.try({
+      try: () => readBackendSpecs(positional[0]),
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.map((specs) => ({ ok: true as const, specs })),
+      // A bad config is a usage error and exits 2; anything else out of
+      // `readBackendSpecs` is a bug, so it stays a defect and exits 1.
+      Effect.catchAll((cause) =>
+        cause instanceof ConfigurationError
+          ? Effect.succeed({ ok: false as const, message: cause.message })
+          : Effect.die(cause),
+      ),
+    );
+    if (!outcome.ok) {
+      log(outcome.message);
+      return 2;
+    }
+
+    const multiplexer = new Multiplexer(outcome.specs, {
+      name: "safer-lsp-proxy",
+      version: packageVersion(),
+    });
+    const onSignal = (): void => { multiplexer.requestStop(); };
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
+    return yield* multiplexer.run(process.stdin, process.stdout).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          process.off("SIGINT", onSignal);
+          process.off("SIGTERM", onSignal);
+        }),
+      ),
+    );
   });
-  const onSignal = (): void => { multiplexer.requestStop(); };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
-  try {
-    return await multiplexer.run(process.stdin, process.stdout);
-  } finally {
-    process.off("SIGINT", onSignal);
-    process.off("SIGTERM", onSignal);
-  }
 }
 
-main(process.argv)
-  .then((code) => process.exit(code))
-  .catch((error: unknown) => {
-    log(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+Effect.runPromise(
+  main(process.argv).pipe(Effect.flatMap((code) => Effect.sync(() => { process.exit(code); }))),
+).catch((error: unknown) => {
+  log(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

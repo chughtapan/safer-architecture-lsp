@@ -1,12 +1,13 @@
 /**
  * @file One child language server. Index 0 is the PRIMARY, authoritative
  * for language features; every other backend is a diagnostics-only
- * SIDECAR. Writes differ by role: the primary is strictly ordered and
- * awaited (it must never lose a message), while a sidecar owns a bounded
- * queue that drops under sustained backpressure so it can never stall the
- * client read loop.
+ * SIDECAR. Writes differ by role: the primary is strictly ordered behind a
+ * one-permit semaphore and reports its failures to the caller (it must
+ * never lose a message), while a sidecar owns a bounded queue that drops
+ * under sustained backpressure so it can never stall the client read loop.
  */
 
+import { Data, Effect } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
 import type { BackendSpec } from "./config.js";
 import { encodePacket, FrameDecoder, type Message } from "./framing.js";
@@ -19,6 +20,15 @@ const MAX_SIDECAR_BUFFER = 4 * 1024 * 1024;
 
 /** Raised when a spawned backend cannot offer the stdio the proxy requires. */
 class BackendError extends Error {}
+
+/**
+ * A packet the proxy could not hand to a backend's stdin. Only the primary
+ * ever reports one: a sidecar's writes go through the drop-on-backpressure
+ * queue, so they cannot fail the caller.
+ */
+export class BackendWriteError extends Data.TaggedError("BackendWriteError")<{
+  readonly message: string;
+}> {}
 
 /**
  * The owner's side of a backend: decoded messages, the backend going down, and
@@ -50,7 +60,7 @@ export class Backend {
   private handlers?: BackendHandlers;
   private exitResolvers: Array<() => void> = [];
 
-  private primaryTail: Promise<void> = Promise.resolve();
+  private readonly primaryWrites: Effect.Semaphore = Effect.unsafeMakeSemaphore(1);
   private readonly sidecarQueue: Buffer[] = [];
   private sidecarBytes = 0;
   private sidecarDraining = false;
@@ -110,11 +120,10 @@ export class Backend {
     });
   }
 
-  send(message: Message): Promise<void> {
+  send(message: Message): Effect.Effect<undefined, BackendWriteError> {
     const packet = encodePacket(message);
     if (this.isPrimary) {return this.writePrimary(packet);}
-    this.enqueueSidecar(packet);
-    return Promise.resolve();
+    return Effect.sync(() => { this.enqueueSidecar(packet); }).pipe(Effect.as(undefined));
   }
 
   closeStdin(): void {
@@ -130,9 +139,14 @@ export class Backend {
     if (!this.exited) {this.process?.kill("SIGKILL");}
   }
 
-  waitExit(): Promise<void> {
-    if (this.exited || this.process === undefined) {return Promise.resolve();}
-    return new Promise((resolve) => { this.exitResolvers.push(resolve); });
+  waitExit(): Effect.Effect<undefined> {
+    return Effect.async<undefined>((resume) => {
+      if (this.exited || this.process === undefined) {
+        resume(Effect.succeed(undefined));
+        return;
+      }
+      this.exitResolvers.push(() => { resume(Effect.succeed(undefined)); });
+    });
   }
 
   private maybeClosed(): void {
@@ -147,21 +161,28 @@ export class Backend {
     for (const resolve of resolvers) {resolve();}
   }
 
-  private writePrimary(packet: Buffer): Promise<void> {
-    const write = this.primaryTail.then(() => this.writeOnce(packet));
-    this.primaryTail = write.catch(() => undefined);
-    return write;
+  // One permit, so the primary's packets reach its stdin in the order the
+  // multiplexer produced them; a failed write releases the permit like any
+  // other exit, so the next message is not stranded behind it.
+  private writePrimary(packet: Buffer): Effect.Effect<undefined, BackendWriteError> {
+    return this.primaryWrites.withPermits(1)(this.writeOnce(packet));
   }
 
-  private writeOnce(packet: Buffer): Promise<void> {
-    return new Promise((resolve, reject) => {
+  private writeOnce(packet: Buffer): Effect.Effect<undefined, BackendWriteError> {
+    return Effect.async<undefined, BackendWriteError>((resume) => {
       const stdin = this.process?.stdin;
       if (!stdin || stdin.destroyed) {
-        reject(new Error(`backend ${this.label} has no stdin`));
+        resume(
+          Effect.fail(new BackendWriteError({ message: `backend ${this.label} has no stdin` })),
+        );
         return;
       }
       stdin.write(packet, (error) => {
-        if (error) {reject(error);} else {resolve();}
+        if (error) {
+          resume(Effect.fail(new BackendWriteError({ message: error.message })));
+        } else {
+          resume(Effect.succeed(undefined));
+        }
       });
     });
   }

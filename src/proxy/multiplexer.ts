@@ -12,9 +12,10 @@
  * dropping that sidecar; the same error on the primary is fatal.
  */
 
+import { Effect, Either } from "effect";
 import { type Readable, Writable  } from "node:stream";
 import type { BackendSpec } from "./config.js";
-import { Backend, type BackendHandlers } from "./backend.js";
+import { Backend, type BackendHandlers, type BackendWriteError } from "./backend.js";
 import { encodePacket, FrameDecoder, type Message, ProtocolError } from "./framing.js";
 import { log } from "./log.js";
 
@@ -53,13 +54,27 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Throwing form for the backend-facing path, whose callers run inside the
+// child's stdout callback where `Backend` already converts a throw into an
+// `onError` for that backend.
 function messageId(message: Message): RpcId | null {
+  return Either.getOrThrowWith(decodeMessageId(message), (error) => error);
+}
+
+/**
+ * Validate a JSON-RPC id without throwing, so the client-facing path keeps
+ * the failure in its typed error channel instead of as a defect.
+ * @param message Message whose `id` field is read.
+ * @returns The id on the right — `null` for an explicit JSON-RPC null id —
+ * or a `ProtocolError` on the left when the field is not a legal id.
+ */
+function decodeMessageId(message: Message): Either.Either<RpcId | null, ProtocolError> {
   const identifier = message.id;
-  if (identifier === null) {return null;}
+  if (identifier === null) {return Either.right(null);}
   if (typeof identifier === "boolean" || (typeof identifier !== "number" && typeof identifier !== "string")) {
-    throw new ProtocolError("JSON-RPC id must be a string, number, or null");
+    return Either.left(new ProtocolError("JSON-RPC id must be a string, number, or null"));
   }
-  return identifier;
+  return Either.right(identifier);
 }
 
 function idKey(identifier: RpcId | null): string {
@@ -97,7 +112,9 @@ export class Multiplexer {
   private requestSequence = 0;
   private clientExited = false;
   private finished = false;
-  private clientTail: Promise<void> = Promise.resolve();
+
+  /** One permit, so client messages are handled strictly in arrival order. */
+  private readonly clientWork: Effect.Semaphore = Effect.unsafeMakeSemaphore(1);
   private resolveExit: (code: number) => void = () => undefined;
 
   constructor(specs: readonly BackendSpec[], serverInfo: ServerInfo) {
@@ -105,10 +122,10 @@ export class Multiplexer {
     this.backends = specs.map((spec, index) => new Backend(index, spec));
   }
 
-  run(clientIn: Readable, clientOut: Writable): Promise<number> {
-    this.clientOut = clientOut;
-    return new Promise<number>((resolve) => {
-      this.resolveExit = resolve;
+  run(clientIn: Readable, clientOut: Writable): Effect.Effect<number> {
+    return Effect.async<number>((resume) => {
+      this.clientOut = clientOut;
+      this.resolveExit = (code) => { resume(Effect.succeed(code)); };
       const handlers: BackendHandlers = {
         onMessage: (index, message) => { this.handleBackend(index, message); },
         onClosed: (index) => { this.onBackendClosed(index); },
@@ -137,9 +154,15 @@ export class Multiplexer {
   }
 
   private enqueueClient(message: Message): void {
-    this.clientTail = this.clientTail
-      .then(() => (this.finished ? undefined : this.handleClient(message)))
-      .catch((error: unknown) => { this.onClientFatal(error); });
+    const handle = Effect.suspend(
+      (): Effect.Effect<undefined, ProtocolError | BackendWriteError> =>
+        this.finished ? Effect.succeed(undefined) : this.handleClient(message),
+    );
+    Effect.runFork(
+      this.clientWork.withPermits(1)(handle).pipe(
+        Effect.catchAll((error) => Effect.sync(() => { this.onClientFatal(error); })),
+      ),
+    );
   }
 
   private activeBackends(): Backend[] {
@@ -150,69 +173,84 @@ export class Multiplexer {
     this.clientOut.write(encodePacket(message));
   }
 
-  private async broadcast(message: Message): Promise<void> {
-    for (const backend of this.activeBackends()) {await backend.send(message);}
+  private broadcast(message: Message): Effect.Effect<undefined, BackendWriteError> {
+    return Effect.gen(this, function* (this: Multiplexer) {
+      for (const backend of this.activeBackends()) {yield* backend.send(message);}
+      return undefined;
+    });
   }
 
-  private async handleClient(message: Message): Promise<void> {
-    if (!("method" in message)) {
-      await this.routeClientResponse(message);
-      return;
-    }
-    const method = message.method;
-    if (typeof method !== "string") {throw new ProtocolError("JSON-RPC method must be a string");}
+  private handleClient(
+    message: Message,
+  ): Effect.Effect<undefined, ProtocolError | BackendWriteError> {
+    return Effect.gen(this, function* (this: Multiplexer) {
+      if (!("method" in message)) {
+        return yield* this.routeClientResponse(message);
+      }
+      const method = message.method;
+      if (typeof method !== "string") {
+        return yield* Effect.fail(new ProtocolError("JSON-RPC method must be a string"));
+      }
 
-    if (method === "exit") {
-      await this.broadcast(message);
-      this.clientExited = true;
-      this.finish(0);
-      return;
-    }
+      if (method === "exit") {
+        yield* this.broadcast(message);
+        this.clientExited = true;
+        this.finish(0);
+        return undefined;
+      }
 
-    if (FANOUT_REQUESTS.has(method)) {
+      if (FANOUT_REQUESTS.has(method)) {
+        if (!("id" in message)) {
+          return yield* this.broadcast(message);
+        }
+        const identifier = yield* decodeMessageId(message);
+        const key = idKey(identifier);
+        if (this.fanouts.has(key)) {
+          this.sendClient(errorResponse(identifier, -32600, "duplicate request id"));
+          return undefined;
+        }
+        this.fanouts.set(key, { method, identifier, responses: new Map() });
+        yield* this.broadcast(message);
+        log(`client -> all: ${method}`);
+        return undefined;
+      }
+
+      if (SIDECAR_NOTIFICATIONS.has(method)) {
+        yield* this.broadcast(message);
+        log(`client -> all: ${method}`);
+      } else {
+        yield* this.backends[0].send(message);
+        log(`client -> primary: ${method}`);
+      }
+      return undefined;
+    });
+  }
+
+  private routeClientResponse(
+    message: Message,
+  ): Effect.Effect<undefined, ProtocolError | BackendWriteError> {
+    return Effect.gen(this, function* (this: Multiplexer) {
       if (!("id" in message)) {
-        await this.broadcast(message);
-        return;
+        return yield* Effect.fail(new ProtocolError("JSON-RPC response is missing id"));
       }
-      const identifier = messageId(message);
-      const key = idKey(identifier);
-      if (this.fanouts.has(key)) {
-        this.sendClient(errorResponse(identifier, -32600, "duplicate request id"));
-        return;
+      const exposedId = yield* decodeMessageId(message);
+      const key = typeof exposedId === "string" ? exposedId : idKey(exposedId);
+      const route = this.clientRequests.get(key);
+      this.clientRequests.delete(key);
+      if (route === undefined) {
+        log(`dropping response for unknown server request ${JSON.stringify(exposedId)}`);
+        return undefined;
       }
-      this.fanouts.set(key, { method, identifier, responses: new Map() });
-      await this.broadcast(message);
-      log(`client -> all: ${method}`);
-      return;
-    }
-
-    if (SIDECAR_NOTIFICATIONS.has(method)) {
-      await this.broadcast(message);
-      log(`client -> all: ${method}`);
-    } else {
-      await this.backends[0].send(message);
-      log(`client -> primary: ${method}`);
-    }
-  }
-
-  private async routeClientResponse(message: Message): Promise<void> {
-    if (!("id" in message)) {throw new ProtocolError("JSON-RPC response is missing id");}
-    const exposedId = messageId(message);
-    const key = typeof exposedId === "string" ? exposedId : idKey(exposedId);
-    const route = this.clientRequests.get(key);
-    this.clientRequests.delete(key);
-    if (route === undefined) {
-      log(`dropping response for unknown server request ${JSON.stringify(exposedId)}`);
-      return;
-    }
-    this.backendRequestIds.delete(`${route.backendIndex}:${idKey(route.originalId)}`);
-    const backend = this.backends[route.backendIndex];
-    if (backend.dropped) {
-      log(`dropping response for dropped backend ${backend.label}`);
-      return;
-    }
-    await backend.send({ ...message, id: route.originalId });
-    log(`client -> ${backend.label}: response`);
+      this.backendRequestIds.delete(`${route.backendIndex}:${idKey(route.originalId)}`);
+      const backend = this.backends[route.backendIndex];
+      if (backend.dropped) {
+        log(`dropping response for dropped backend ${backend.label}`);
+        return undefined;
+      }
+      yield* backend.send({ ...message, id: route.originalId });
+      log(`client -> ${backend.label}: response`);
+      return undefined;
+    });
   }
 
   private handleBackend(index: number, message: Message): void {
@@ -405,9 +443,11 @@ export class Multiplexer {
     for (const [key, fanout] of [...this.fanouts]) {this.maybeCompleteFanout(key, fanout);}
   }
 
+  // Queued behind the same permit as every client message, so the stream's
+  // end is only acted on once the messages that preceded it are handled.
   private onClientEnd(): void {
     if (this.finished) {return;}
-    void this.clientTail.then(() => { this.finish(0); });
+    Effect.runFork(this.clientWork.withPermits(1)(Effect.sync(() => { this.finish(0); })));
   }
 
   private onClientFatal(error: unknown): void {
@@ -419,30 +459,41 @@ export class Multiplexer {
   private finish(code: number): void {
     if (this.finished) {return;}
     this.finished = true;
-    void this.stopBackends().then(() => { this.resolveExit(code); });
+    Effect.runFork(
+      this.stopBackends().pipe(
+        Effect.flatMap(() => Effect.sync(() => { this.resolveExit(code); })),
+      ),
+    );
   }
 
-  private async stopBackends(): Promise<void> {
-    for (const backend of this.backends) {backend.closeStdin();}
-    const pending = this.backends.filter((backend) => !backend.exited);
-    await this.waitFor(pending, 750);
+  private stopBackends(): Effect.Effect<undefined> {
+    return Effect.gen(this, function* (this: Multiplexer) {
+      for (const backend of this.backends) {backend.closeStdin();}
+      const pending = this.backends.filter((backend) => !backend.exited);
+      yield* this.waitFor(pending, 750);
 
-    const afterClose = pending.filter((backend) => !backend.exited);
-    for (const backend of afterClose) {backend.terminate();}
-    await this.waitFor(afterClose, 750);
+      const afterClose = pending.filter((backend) => !backend.exited);
+      for (const backend of afterClose) {backend.terminate();}
+      yield* this.waitFor(afterClose, 750);
 
-    const afterTerm = afterClose.filter((backend) => !backend.exited);
-    for (const backend of afterTerm) {backend.kill();}
-    await Promise.all(afterTerm.map((backend) => backend.waitExit()));
-  }
-
-  private waitFor(backends: Backend[], ms: number): Promise<void> {
-    if (backends.length === 0) {return Promise.resolve();}
-    const settled = Promise.all(backends.map((backend) => backend.waitExit())).then(() => undefined);
-    const timeout = new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, ms);
-      timer.unref();
+      const afterTerm = afterClose.filter((backend) => !backend.exited);
+      for (const backend of afterTerm) {backend.kill();}
+      // Waiting one at a time still ends at the last exit: `waitExit` returns
+      // immediately for a backend that has already gone, and SIGKILL has
+      // already been delivered to all of them.
+      yield* Effect.all(afterTerm.map((backend) => backend.waitExit()), { discard: true });
+      return undefined;
     });
-    return Promise.race([settled, timeout]);
+  }
+
+  // Bounds the whole group, not each backend: a timeout abandons the waits
+  // that are still outstanding and lets the caller escalate.
+  private waitFor(backends: Backend[], ms: number): Effect.Effect<undefined> {
+    if (backends.length === 0) {return Effect.succeed(undefined);}
+    return Effect.all(backends.map((backend) => backend.waitExit()), { discard: true }).pipe(
+      Effect.timeout(ms),
+      Effect.ignore,
+      Effect.as(undefined),
+    );
   }
 }

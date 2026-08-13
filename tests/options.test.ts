@@ -4,6 +4,7 @@
  * per-issue explanation rather than deep in an analysis pass.
  */
 
+import { FastCheck as fc } from "effect";
 import path from "node:path";
 import { expect, it } from "vitest";
 import { createProgram } from "../src/analyzer/project/source-files.js";
@@ -161,12 +162,17 @@ it("removes inert emit paths from the analysis compiler options", () => {
 });
 
 it("rejects every malformed option shape, and rejects the same object again", () => {
-  for (const rejected of REJECTED_OPTION_CASES) {
-    // Each shape has to fail with the explanation that names its own defect,
-    // which is what lets a caller fix the config without bisecting it.
-    expect(() => resolveArchitectureOptions(rejected.input)).toThrow(rejected.message);
-    // The decode cache is keyed by object identity, so semantic validation has
-    // to run before the cache is written or the second resolve would succeed.
-    expect(() => resolveArchitectureOptions(rejected.input)).toThrow(rejected.message);
-  }
+  fc.assert(
+    fc.property(fc.constantFrom(...REJECTED_OPTION_CASES), (rejected) => {
+      // Each shape has to fail with the explanation that names its own defect,
+      // which is what lets a caller fix the config without bisecting it.
+      expect(() => resolveArchitectureOptions(rejected.input)).toThrow(rejected.message);
+      // The decode cache is keyed by object identity, so semantic validation has
+      // to run before the cache is written or the second resolve would succeed.
+      expect(() => resolveArchitectureOptions(rejected.input)).toThrow(rejected.message);
+    }),
+    // Rejection is pure decoding with no filesystem cost, so the run budget is
+    // set high enough that every case is drawn rather than sampled thin.
+    { numRuns: REJECTED_OPTION_CASES.length * 8 },
+  );
 });

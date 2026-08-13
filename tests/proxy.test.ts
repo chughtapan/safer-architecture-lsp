@@ -193,9 +193,9 @@ class ProxyClient {
     });
   }
 
-  expectSilence(ms: number): Effect.Effect<void, UnexpectedMessage> {
+  expectSilence(ms: number): Effect.Effect<undefined, UnexpectedMessage> {
     return Effect.matchEffect(this.next(ms), {
-      onFailure: () => Effect.void,
+      onFailure: () => Effect.succeed(undefined),
       onSuccess: (payload) => Effect.fail(new UnexpectedMessage({ payload })),
     });
   }

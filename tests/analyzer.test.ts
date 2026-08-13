@@ -4,6 +4,7 @@
  * directives suppress exactly the named rule.
  */
 
+import { FastCheck as fc } from "effect";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
@@ -176,32 +177,38 @@ it("tombstones the legacy directive marker instead of honoring it", () => {
 });
 
 it("keeps the rule registry and the waiver ledger honest for every project shape", () => {
-  for (const files of PROJECT_SHAPES) {
-    const project = makeFixture(files);
-    try {
-      const report = analyzeResolvedArchitecture(
-        resolveArchitectureOptions({ projectRoot: project.root }),
-      );
-      for (const diagnostic of report.diagnostics) {
-        // An id outside the registry could never be waived, because the
-        // directive parser validates written ids against that same list.
-        expect(REPORTABLE_RULE_IDS.has(diagnostic.ruleId)).toBe(true);
-        // Editors and CI resolve the reported path against nothing, so a
-        // relative path would attach the finding to the wrong file.
-        expect(path.isAbsolute(diagnostic.file)).toBe(true);
-      }
-      for (const waiver of report.waivers) {
-        const stillReported = report.diagnostics.filter(
-          (d) =>
-            d.ruleId === waiver.ruleId &&
-            path.resolve(d.file) === path.resolve(waiver.file),
+  fc.assert(
+    fc.property(fc.constantFrom(...PROJECT_SHAPES), (files) => {
+      const project = makeFixture(files);
+      try {
+        const report = analyzeResolvedArchitecture(
+          resolveArchitectureOptions({ projectRoot: project.root }),
         );
-        // A ledger entry claims that file's finding for that rule was dropped;
-        // a surviving diagnostic for the same pair would make the claim a lie.
-        expect(stillReported).toEqual([]);
+        for (const diagnostic of report.diagnostics) {
+          // An id outside the registry could never be waived, because the
+          // directive parser validates written ids against that same list.
+          expect(REPORTABLE_RULE_IDS.has(diagnostic.ruleId)).toBe(true);
+          // Editors and CI resolve the reported path against nothing, so a
+          // relative path would attach the finding to the wrong file.
+          expect(path.isAbsolute(diagnostic.file)).toBe(true);
+        }
+        for (const waiver of report.waivers) {
+          const stillReported = report.diagnostics.filter(
+            (d) =>
+              d.ruleId === waiver.ruleId &&
+              path.resolve(d.file) === path.resolve(waiver.file),
+          );
+          // A ledger entry claims that file's finding for that rule was dropped;
+          // a surviving diagnostic for the same pair would make the claim a lie.
+          expect(stillReported).toEqual([]);
+        }
+      } finally {
+        project.cleanup();
       }
-    } finally {
-      project.cleanup();
-    }
-  }
+    }),
+    // Every run builds a real project on disk and compiles it, so the budget
+    // stays close to the case count; each shape is also pinned by its own
+    // example above.
+    { numRuns: PROJECT_SHAPES.length * 3 },
+  );
 });

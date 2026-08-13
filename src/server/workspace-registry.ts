@@ -52,8 +52,10 @@ export interface WorkspaceRegistry {
   /**
    * Tear down one workspace: closes its child scope (watcher + cache
    * finalizers run now) and forgets the engine. No-op for unknown roots.
+   * Succeeds with `undefined`, which is the legal Effect spelling of
+   * "nothing to hand back".
    */
-  readonly unregister: (projectRoot: string) => Effect.Effect<void>;
+  readonly unregister: (projectRoot: string) => Effect.Effect<undefined>;
 
   readonly findByProjectRoot: (
     projectRoot: string,
@@ -94,14 +96,14 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
         return engine;
       }));
 
-    const unregister = (projectRoot: string): Effect.Effect<void> =>
+    const unregister = (projectRoot: string): Effect.Effect<undefined> =>
       mutex.withPermits(1)(Effect.gen(function* () {
         const map = yield* Ref.get(ref);
         const entry = map.get(projectRoot);
         if (entry === undefined) {return;}
         yield* Ref.update(ref, removeEntry(projectRoot));
         yield* Scope.close(entry.scope, Exit.void);
-      }));
+      })).pipe(Effect.as(undefined));
 
     const findByProjectRoot = (
       projectRoot: string,

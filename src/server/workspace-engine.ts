@@ -79,9 +79,11 @@ export interface WorkspaceEngine {
   /**
    * Stream of cache-invalidation signals. The cache is already cleared
    * by the time a value is emitted; subscribers should re-publish
-   * diagnostics for their open documents.
+   * diagnostics for their open documents. The element type is
+   * `undefined` — the signal carries no payload, and `void` is not a
+   * legal Effect/Stream element type.
    */
-  readonly invalidations: Stream.Stream<void>;
+  readonly invalidations: Stream.Stream<undefined>;
 
   /** Absolute project root this engine is scoped to. */
   readonly projectRoot: string;
@@ -111,7 +113,7 @@ const acquireWatcher = (
 
 const wireWatcherToPubSub = (
   watcher: FSWatcher,
-  pubsub: PubSub.PubSub<void>,
+  pubsub: PubSub.PubSub<undefined>,
   projectRoot: string,
 ): void => {
   const onChange = (filePath: string): void => {
@@ -161,7 +163,7 @@ export const makeWorkspaceEngine = (
   options: ResolvedArchitectureOptions,
 ): Effect.Effect<WorkspaceEngine, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const pubsub = yield* PubSub.unbounded<void>();
+    const pubsub = yield* PubSub.unbounded<undefined>();
     const watcher = yield* acquireWatcher(options.projectRoot);
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => { clearWorkspaceCache(options.projectRoot); }),
