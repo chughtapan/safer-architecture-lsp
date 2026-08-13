@@ -1,4 +1,3 @@
-// safer-arch-ignore no-trivial-sink-file: the buffer store stays separate so the overlay-diagnostics follow-up can grow here without touching lsp-server.
 /**
  * @file In-memory store of currently-open LSP documents. Tracks URI,
  * version, text, and the workspace folder each document belongs to.
@@ -8,6 +7,8 @@
 
 import { Effect, Ref } from "effect";
 
+
+// safer-arch-ignore no-trivial-sink-file: the buffer store stays separate so the overlay-diagnostics follow-up can grow here without touching lsp-server.
 interface OpenDocument {
   readonly uri: string;
   readonly version: number;

@@ -1,4 +1,3 @@
-// safer-arch-ignore no-trivial-sink-file: module SCC policy stays isolated from graph construction so the typed graph primitive remains reusable for domains and packages.
 /**
  * @file The `no-module-cycle` check. Strongly connected components are
  * computed over production files only, so a test that imports both ends of a
@@ -15,6 +14,8 @@ import {
   makeDirectedGraph,
 } from "../graph/index.js";
 
+
+// safer-arch-ignore no-trivial-sink-file: module SCC policy stays isolated from graph construction so the typed graph primitive remains reusable for domains and packages.
 /**
  * Report one stable diagnostic for each production module SCC.
  * @param graph Modules and local edges to search, plus the project root that shortens file names in the message.

@@ -1,3 +1,9 @@
+/**
+ * @file Test runner configuration. File parallelism is off because each test
+ * file builds real ts.Programs and spawns the server binary, which contend
+ * badly on CI-sized machines. Coverage thresholds live in .c8rc.json.
+ */
+
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({

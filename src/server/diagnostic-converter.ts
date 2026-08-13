@@ -1,4 +1,3 @@
-// safer-arch-ignore no-trivial-sink-file: the analyzer-to-LSP shape conversion is a deliberate seam; inlining it into lsp-server would couple protocol types into the publish loop.
 /**
  * @file Convert analyzer `ArchitectureDiagnostic` values into LSP
  * `Diagnostic` values for `publishDiagnostics`. Architecture findings
@@ -15,6 +14,8 @@ import {
 import type { ArchitectureDiagnostic } from "../analyzer/project/api/index.js";
 import { ruleCodeDescription } from "./rule-docs.js";
 
+
+// safer-arch-ignore no-trivial-sink-file: the analyzer-to-LSP shape conversion is a deliberate seam; inlining it into lsp-server would couple protocol types into the publish loop.
 const FILE_HEAD_RANGE = {
   start: { line: 0, character: 0 },
   end: { line: 0, character: 1 },
