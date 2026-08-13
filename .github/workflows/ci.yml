@@ -25,13 +25,16 @@ jobs:
       - name: Install
         run: npm ci
 
-      # Runs the full suite under c8, so the server, proxy, and CLI tests that
-      # spawn the built dist/ bins are counted; an in-process provider sees
-      # none of that. Global thresholds live in .c8rc.json and per-directory
-      # floors in scripts/coverage-gate.mjs; either one fails the job. This is
-      # a superset of `npm test`, which is why the suite runs once.
-      - name: Test + coverage (builds first)
-        run: npm run test:coverage
+      # The uninstrumented suite. Coverage runs pre-push instead: c8 makes the
+      # process-spawning suites roughly an order of magnitude slower, which put
+      # the slowest property test over vitest's 30s timeout on CI hardware.
+      - name: Test (builds first)
+        run: npm test
+
+      # tsconfig.json excludes tests and vitest strips types without checking,
+      # so without this step a type error anywhere in tests/ lands green.
+      - name: Typecheck tests
+        run: npm run typecheck
 
       - name: Lint
         run: npm run lint

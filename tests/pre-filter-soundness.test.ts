@@ -4,13 +4,10 @@
  * external type entry path must seed the full semantic type walk itself.
  */
 
+import { FastCheck as fc } from "effect";
 import { symlinkSync } from "node:fs";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import {
-  analyzeResolvedArchitecture,
-  resolveArchitectureOptions,
-} from "../src/index.js";
 import { buildProjectGraph } from "../src/analyzer/imports/project-graph/index.js";
 import { emptyPackageJson } from "../src/analyzer/package-api/index.js";
 import {
@@ -18,7 +15,11 @@ import {
   projectSourceFiles,
 } from "../src/analyzer/project/source-files.js";
 import { buildExternalTypeReach } from "../src/analyzer/type-surface/external-reach.js";
-import { makeFixture, type Fixture } from "./support/fixtures.js";
+import {
+  analyzeResolvedArchitecture,
+  resolveArchitectureOptions,
+} from "../src/index.js";
+import { type Fixture, makeFixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;
 
@@ -29,6 +30,27 @@ afterEach(() => {
 
 const REPO_NODE_MODULES = path.resolve("node_modules");
 const VENDOR_NAME = "fixture-vendor";
+
+/** The rule every soundness case in this file must keep reporting. */
+const VENDOR_LEAK_RULE_ID = "no-public-vendor-type-leak";
+
+/** Token in an entry form that stands for the exported type's name. */
+const ALIAS_PLACEHOLDER = "ALIAS";
+
+/**
+ * Public-export shapes that each reach the same vendor declaration through a
+ * different entry path. Every one of them must produce the leak finding.
+ */
+const VENDOR_ENTRY_FORMS: readonly string[] = [
+  `export type ${ALIAS_PLACEHOLDER} = import("${VENDOR_NAME}").VendorType;\n`,
+  `import vendor = require("${VENDOR_NAME}");\n` +
+    `export type ${ALIAS_PLACEHOLDER} = vendor.VendorType;\n`,
+  `import type { VendorType } from "${VENDOR_NAME}";\n` +
+    `export type ${ALIAS_PLACEHOLDER} = VendorType;\n`,
+  `import type { VendorType } from "${VENDOR_NAME}";\n` +
+    `export interface ${ALIAS_PLACEHOLDER} { readonly vendor: VendorType; }\n`,
+];
+
 const TYPES_EMPTY_TSCONFIG = JSON.stringify({
   compilerOptions: {
     target: "ES2022",
@@ -80,10 +102,31 @@ function vendorLeakDiagnostics(root: string) {
   return analyzeResolvedArchitecture(
     resolveArchitectureOptions({ projectRoot: root }),
   ).diagnostics.filter((diagnostic) =>
-    diagnostic.ruleId === "no-public-vendor-type-leak" &&
+    diagnostic.ruleId === VENDOR_LEAK_RULE_ID &&
     diagnostic.message.includes(VENDOR_NAME)
   );
 }
+
+it("reports a vendor leak for every public entry path and alias", () => {
+  fc.assert(
+    fc.property(
+      fc.constantFrom(...VENDOR_ENTRY_FORMS),
+      fc.constantFrom("PublicType", "ExposedShape", "Api"),
+      (form, alias) => {
+        const created = makeSoundnessFixture(form.replaceAll(ALIAS_PLACEHOLDER, alias));
+        try {
+          // Soundness is a property of the reachability walk, not of one
+          // syntax: any public export that reaches the vendor declaration
+          // must be reported, whatever route or name it uses.
+          expect(vendorLeakDiagnostics(created.root)).not.toHaveLength(0);
+        } finally {
+          created.cleanup();
+        }
+      },
+    ),
+    { numRuns: VENDOR_ENTRY_FORMS.length * 3 },
+  );
+});
 
 it("walks an export reached through an import() type node", () => {
   fixture = makeSoundnessFixture(
@@ -199,14 +242,14 @@ it("treats a string-literal module declaration as requiring the full walk", () =
   const options = resolveArchitectureOptions({ projectRoot: fixture.root });
   const program = createProgram(options);
   expect(program).not.toBeNull();
-  if (program === null) return;
+  if (program === null) {return;}
 
   const sourceFiles = projectSourceFiles(program, fixture.root);
   const publicFile = sourceFiles.find((sourceFile) =>
     path.basename(sourceFile.fileName) === "index.ts"
   );
   expect(publicFile).toBeDefined();
-  if (publicFile === undefined) return;
+  if (publicFile === undefined) {return;}
 
   const graph = buildProjectGraph(
     sourceFiles,
@@ -240,14 +283,14 @@ it("keeps a checker-resolved internal # edge on the local fast path", () => {
   const options = resolveArchitectureOptions({ projectRoot: fixture.root });
   const program = createProgram(options);
   expect(program).not.toBeNull();
-  if (program === null) return;
+  if (program === null) {return;}
 
   const sourceFiles = projectSourceFiles(program, fixture.root);
   const publicFile = sourceFiles.find((sourceFile) =>
     path.basename(sourceFile.fileName) === "index.ts"
   );
   expect(publicFile).toBeDefined();
-  if (publicFile === undefined) return;
+  if (publicFile === undefined) {return;}
 
   const graph = buildProjectGraph(
     sourceFiles,
@@ -353,5 +396,7 @@ it("preserves the import() finding when ambient types already force a full walk"
   const ruleIds = analyzeResolvedArchitecture(
     resolveArchitectureOptions({ projectRoot: fixture.root }),
   ).diagnostics.map((diagnostic) => diagnostic.ruleId);
-  expect(ruleIds).toContain("no-public-vendor-type-leak");
+  // Ambient `effect` types already force the full walk, so this pins that the
+  // import() finding survives that path instead of being deduplicated away.
+  expect(ruleIds).toContain(VENDOR_LEAK_RULE_ID);
 });

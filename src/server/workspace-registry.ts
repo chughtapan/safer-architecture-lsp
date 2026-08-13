@@ -7,9 +7,9 @@
  * instead of at process exit.
  */
 
-import { Effect, Exit, ExecutionStrategy, Ref, Scope } from "effect";
-import { resolveArchitectureOptions, type ArchitectureOptionsInput } from "../analyzer/project/api/index.js";
-import { type WorkspaceEngine, makeWorkspaceEngine } from "./workspace-engine.js";
+import { Effect, ExecutionStrategy, Exit, Ref, Scope } from "effect";
+import { type ArchitectureOptionsInput, resolveArchitectureOptions } from "../analyzer/project/api/index.js";
+import { makeWorkspaceEngine, type WorkspaceEngine } from "./workspace-engine.js";
 
 interface EngineEntry {
   readonly engine: WorkspaceEngine;
@@ -19,21 +19,30 @@ interface EngineEntry {
 type EngineMap = ReadonlyMap<string, EngineEntry>;
 
 function insertEntry(
-  map: EngineMap,
   projectRoot: string,
   entry: EngineEntry,
-): EngineMap {
-  const next = new Map(map);
-  next.set(projectRoot, entry);
-  return next;
+): (map: EngineMap) => EngineMap {
+  return (map) => {
+    const next = new Map(map);
+    next.set(projectRoot, entry);
+    return next;
+  };
 }
 
-function removeEntry(map: EngineMap, projectRoot: string): EngineMap {
-  const next = new Map(map);
-  next.delete(projectRoot);
-  return next;
+function removeEntry(projectRoot: string): (map: EngineMap) => EngineMap {
+  return (map) => {
+    const next = new Map(map);
+    next.delete(projectRoot);
+    return next;
+  };
 }
 
+/**
+ * Handle over the live engines, one per project root. `register` is
+ * idempotent and hands back the existing engine, so repeated folder or
+ * config notifications for one root cannot leave a second watcher and
+ * cache running behind the first.
+ */
 export interface WorkspaceRegistry {
   readonly register: (
     projectRoot: string,
@@ -43,8 +52,10 @@ export interface WorkspaceRegistry {
   /**
    * Tear down one workspace: closes its child scope (watcher + cache
    * finalizers run now) and forgets the engine. No-op for unknown roots.
+   * Succeeds with `undefined`, which is the legal Effect spelling of
+   * "nothing to hand back".
    */
-  readonly unregister: (projectRoot: string) => Effect.Effect<void>;
+  readonly unregister: (projectRoot: string) => Effect.Effect<undefined>;
 
   readonly findByProjectRoot: (
     projectRoot: string,
@@ -71,7 +82,7 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
       mutex.withPermits(1)(Effect.gen(function* () {
         const map = yield* Ref.get(ref);
         const existing = map.get(projectRoot);
-        if (existing !== undefined) return existing.engine;
+        if (existing !== undefined) {return existing.engine;}
         const parent = yield* Effect.scope;
         const child = yield* Scope.fork(parent, ExecutionStrategy.sequential);
         const resolved = resolveArchitectureOptions({
@@ -81,18 +92,18 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
         const engine = yield* makeWorkspaceEngine(resolved).pipe(
           Scope.extend(child),
         );
-        yield* Ref.update(ref, (m) => insertEntry(m, projectRoot, { engine, scope: child }));
+        yield* Ref.update(ref, insertEntry(projectRoot, { engine, scope: child }));
         return engine;
       }));
 
-    const unregister = (projectRoot: string): Effect.Effect<void> =>
+    const unregister = (projectRoot: string): Effect.Effect<undefined> =>
       mutex.withPermits(1)(Effect.gen(function* () {
         const map = yield* Ref.get(ref);
         const entry = map.get(projectRoot);
-        if (entry === undefined) return;
-        yield* Ref.update(ref, (m) => removeEntry(m, projectRoot));
+        if (entry === undefined) {return;}
+        yield* Ref.update(ref, removeEntry(projectRoot));
         yield* Scope.close(entry.scope, Exit.void);
-      }));
+      })).pipe(Effect.as(undefined));
 
     const findByProjectRoot = (
       projectRoot: string,
@@ -103,4 +114,4 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
       Effect.map(Ref.get(ref), (map) => [...map.keys()]);
 
     return { register, unregister, findByProjectRoot, listProjectRoots };
-  });
+  }).pipe(Effect.withSpan("makeWorkspaceRegistry"));

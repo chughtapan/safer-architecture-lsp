@@ -1,14 +1,26 @@
-// safer-arch-ignore no-trivial-sink-file: module SCC policy stays isolated from graph construction so the typed graph primitive remains reusable for domains and packages.
+/**
+ * @file The `no-module-cycle` check. Strongly connected components are
+ * computed over production files only, so a test that imports both ends of a
+ * pair cannot invent a cycle. Each component is reported once with a
+ * canonical cycle path, so the same cycle reads identically on every run.
+ */
+
 import path from "node:path";
+import type { ArchitectureDiagnostic } from "../project/api/index.js";
+import type { ProjectArchitectureGraph } from "../project/index.js";
 import {
   canonicalCyclePath,
   cyclicStronglyConnectedComponents,
   makeDirectedGraph,
 } from "../graph/index.js";
-import type { ArchitectureDiagnostic } from "../project/api/index.js";
-import type { ProjectArchitectureGraph } from "../project/index.js";
 
-/** Report one stable diagnostic for each production module SCC. */
+
+// safer-arch-ignore no-trivial-sink-file: module SCC policy stays isolated from graph construction so the typed graph primitive remains reusable for domains and packages.
+/**
+ * Report one stable diagnostic for each production module SCC.
+ * @param graph Modules and local edges to search, plus the project root that shortens file names in the message.
+ * @returns One warning per cyclic component, quoting both the component members and one canonical cycle through them.
+ */
 export function moduleCycleDiagnostics(
   graph: ProjectArchitectureGraph,
 ): readonly ArchitectureDiagnostic[] {

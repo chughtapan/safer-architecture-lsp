@@ -1,11 +1,18 @@
+/**
+ * @file Folder child-count budget. Measures each folder's direct children
+ * against three independent limits - production children, children including
+ * tests, and test children with no production counterpart - with per-folder
+ * overrides taking precedence over the project-wide defaults.
+ */
+
+import type { ProjectArchitectureGraph } from "../imports/index.js";
+import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 import {
   firstSorted,
   folderChildren,
-  sourceFolderPath,
   type FolderChildren,
+  sourceFolderPath,
 } from "./children/index.js";
-import type { ProjectArchitectureGraph } from "../imports/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 
 interface FolderSizeStats {
   readonly productionChildren: readonly string[];
@@ -18,6 +25,16 @@ interface FolderSizeStats {
   readonly maxUnpairedTestChildren: number;
 }
 
+/**
+ * Warn about every folder that exceeds any one of its three child-count
+ * limits. Unpaired tests are counted separately so that tests sitting beside
+ * the code they exercise do not, on their own, push a folder over budget.
+ * @param graph Modules and folders whose direct children are counted.
+ * @param options Project-wide child limits and the per-folder overrides that
+ * replace them.
+ * @returns One warning per over-budget folder, naming its alphabetically
+ * first six children as evidence; empty when every folder fits.
+ */
 export function folderChildLimitDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,
@@ -33,7 +50,7 @@ function folderChildLimitDiagnostic(
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   const stats = folderSizeStats(children, options);
-  if (!largeFolder(stats)) return [];
+  if (!largeFolder(stats)) {return [];}
   return [largeFolderDiagnostic(children, graph, stats)];
 }
 
@@ -42,8 +59,8 @@ function folderSizeStats(
   options: ResolvedArchitectureOptions,
 ): FolderSizeStats {
   const unpairedTestChildren = setDifference(children.testChildren, children.productionChildren);
-  const productionChildren = [...children.productionChildren].sort();
-  const testChildren = [...children.testChildren].sort();
+  const productionChildren = [...children.productionChildren].sort(compareStrings);
+  const testChildren = [...children.testChildren].sort(compareStrings);
   return {
     productionChildren,
     testChildren,
@@ -117,12 +134,17 @@ function setDifference(
   left: ReadonlySet<string>,
   right: ReadonlySet<string>,
 ): readonly string[] {
-  return [...left].filter((value) => !right.has(value)).sort();
+  return [...left].filter((value) => !right.has(value)).sort(compareStrings);
 }
 
 function unionSorted(
   leftValues: readonly string[],
   rightValues: readonly string[],
 ): readonly string[] {
-  return [...new Set([...leftValues, ...rightValues])].sort();
+  return [...new Set([...leftValues, ...rightValues])].sort(compareStrings);
+}
+
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

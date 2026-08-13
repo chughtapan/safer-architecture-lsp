@@ -14,10 +14,10 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import type {
-  ArchitectureDiagnostic,
   ArchitectureAnalysisSnapshot,
-  ArchitectureWaiver,
+  ArchitectureDiagnostic,
   ArchitectureReport,
+  ArchitectureWaiver,
   ResolvedArchitectureOptions,
 } from "../diagnostics/index.js";
 import { dependencyWatermarks } from "./dependency-watermark.js";
@@ -28,14 +28,6 @@ import { dependencyWatermarks } from "./dependency-watermark.js";
 const CACHE_VERSION = 4;
 const CACHE_DIR_SEGMENTS = ["node_modules", ".cache", "safer-architecture-lsp"];
 const CACHE_FILE = "report.json";
-
-function discardCacheError(_captured: unknown): null {
-  // Disk cache is best-effort. A malformed file, permission error, or
-  // race against another lint must never block the linter; we fall back
-  // to a fresh analyzer build. The error is captured for future
-  // debugging via Node inspector if needed.
-  return null;
-}
 
 interface FileWatermark {
   readonly path: string;
@@ -53,10 +45,6 @@ interface PersistedReport {
   readonly snapshot: ArchitectureAnalysisSnapshot;
 }
 
-function cacheFilePathFor(projectRoot: string): string {
-  return path.join(projectRoot, ...CACHE_DIR_SEGMENTS, CACHE_FILE);
-}
-
 /**
  * Read and validate a persisted report. Returns `null` when the file
  * is absent, malformed, or built against an older schema version.
@@ -65,10 +53,14 @@ function cacheFilePathFor(projectRoot: string): string {
  */
 export function readDiskCache(projectRoot: string): PersistedReport | null {
   const filePath = cacheFilePathFor(projectRoot);
-  if (!fs.existsSync(filePath)) return null;
+  if (!fs.existsSync(filePath)) {return null;}
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as PersistedReport;
-    if (parsed.version !== CACHE_VERSION) return null;
+    const parsed =
+      // This file is written only by `writeDiskCache` below and the version
+      // check that follows rejects any payload from another schema, so the
+      // shape is known here.
+      JSON.parse(fs.readFileSync(filePath, "utf8")) as PersistedReport;
+    if (parsed.version !== CACHE_VERSION) {return null;}
     return parsed;
   } catch (error) {
     return discardCacheError(error);
@@ -94,7 +86,7 @@ export function writeDiskCache(
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
   const diagnosticsByFile: Record<string, readonly ArchitectureDiagnostic[]> = {};
-  for (const [k, v] of report.diagnosticsByFile.entries()) diagnosticsByFile[k] = v;
+  for (const [k, v] of report.diagnosticsByFile.entries()) {diagnosticsByFile[k] = v;}
 
   const payload: PersistedReport = {
     version: CACHE_VERSION,
@@ -117,7 +109,7 @@ export function writeDiskCache(
  */
 export function hydrateReport(persisted: PersistedReport): ArchitectureReport {
   const byFile = new Map<string, readonly ArchitectureDiagnostic[]>();
-  for (const [k, v] of Object.entries(persisted.diagnosticsByFile)) byFile.set(k, v);
+  for (const [k, v] of Object.entries(persisted.diagnosticsByFile)) {byFile.set(k, v);}
   return {
     diagnostics: persisted.diagnostics,
     diagnosticsByFile: byFile,
@@ -155,30 +147,13 @@ export function computeFileWatermark(
   // files: edits to any of these change the report even when no .ts
   // file changed, so the watermark must capture them.
   const tsconfigFinder = (root: string): string | undefined =>
-    ts.findConfigFile(root, ts.sys.fileExists, "tsconfig.json") ?? undefined;
+    ts.findConfigFile(root, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json") ??
+    undefined;
   for (const extra of dependencyWatermarks(options, tsconfigFinder)) {
     watermarks.push(extra);
   }
   watermarks.sort((left, right) => left.path.localeCompare(right.path));
   return watermarks;
-}
-
-function enumerateProjectFiles(options: ResolvedArchitectureOptions): readonly string[] {
-  const configPath =
-    options.tsconfigPath ?? ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
-  if (!configPath) return [];
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
-  const parsed = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    path.dirname(configPath),
-  );
-  if (parsed.errors.length > 0) return [];
-  const root = path.resolve(options.projectRoot);
-  return parsed.fileNames.filter((file) =>
-    path.resolve(file).startsWith(root + path.sep) &&
-    !file.includes(`${path.sep}node_modules${path.sep}`),
-  );
 }
 
 /**
@@ -204,9 +179,41 @@ export function watermarksMatch(
   before: readonly FileWatermark[],
   after: readonly FileWatermark[],
 ): boolean {
-  if (before.length !== after.length) return false;
+  if (before.length !== after.length) {return false;}
   for (let i = 0; i < before.length; i++) {
-    if (before[i].path !== after[i].path || before[i].hash !== after[i].hash) return false;
+    if (before[i].path !== after[i].path || before[i].hash !== after[i].hash) {return false;}
   }
   return true;
+}
+
+function cacheFilePathFor(projectRoot: string): string {
+  return path.join(projectRoot, ...CACHE_DIR_SEGMENTS, CACHE_FILE);
+}
+
+function enumerateProjectFiles(options: ResolvedArchitectureOptions): readonly string[] {
+  const configPath =
+    options.tsconfigPath ??
+    ts.findConfigFile(options.projectRoot, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json");
+  if (!configPath) {return [];}
+  const configFile = ts.readConfigFile(configPath, (fileName) => ts.sys.readFile(fileName));
+  const parsed = ts.parseJsonConfigFileContent(
+    configFile.config,
+    ts.sys,
+    path.dirname(configPath),
+  );
+  if (parsed.errors.length > 0) {return [];}
+  const root = path.resolve(options.projectRoot);
+  return parsed.fileNames.filter((file) =>
+    path.resolve(file).startsWith(root + path.sep) &&
+    !file.includes(`${path.sep}node_modules${path.sep}`),
+  );
+}
+
+// Disk cache is best-effort. A malformed file, permission error, or
+// race against another lint must never block the linter; we fall back
+// to a fresh analyzer build. Callers bind the caught error and hand it
+// here, so the overload accepts it and the implementation drops it.
+function discardCacheError(captured: unknown): null;
+function discardCacheError(): null {
+  return null;
 }

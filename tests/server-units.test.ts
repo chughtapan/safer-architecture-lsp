@@ -1,12 +1,25 @@
-import path from "node:path";
+/**
+ * @file Unit checks for the language server pieces that hold state: the
+ * open-document store, the grouping of findings into per-URI diagnostics,
+ * and the workspace registry. The registry case registers one root four
+ * times concurrently, since a repeat must reuse the engine, not build one.
+ */
+
 import { assert, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import path from "node:path";
 import { DiagnosticSeverity } from "vscode-languageserver";
 import { groupByUri } from "../src/server/diagnostic-converter.js";
 import { makeDocumentStore } from "../src/server/document-store.js";
 import { ruleCodeDescription } from "../src/server/rule-docs.js";
 import { makeWorkspaceRegistry } from "../src/server/workspace-registry.js";
 import { makeFixture } from "./support/fixtures.js";
+
+/**
+ * How many `register` calls race for the same root. All of them are in
+ * flight at once, which is what makes a second engine build observable.
+ */
+const CONCURRENT_REGISTRATIONS = 4;
 
 it.effect("stores, updates, lists, and closes open documents", () =>
   Effect.gen(function* () {
@@ -53,8 +66,8 @@ it.effect("registers each workspace once and releases it on unregister", () =>
       );
       const registry = yield* makeWorkspaceRegistry();
       const registrations = yield* Effect.all(
-        Array.from({ length: 4 }, () => registry.register(fixture.root)),
-        { concurrency: "unbounded" },
+        Array.from({ length: CONCURRENT_REGISTRATIONS }, () => registry.register(fixture.root)),
+        { concurrency: CONCURRENT_REGISTRATIONS },
       );
       const first = registrations[0];
       assert.isDefined(first);

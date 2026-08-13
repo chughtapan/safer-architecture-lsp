@@ -18,11 +18,11 @@
  * workspace's engine in place (child-Scope teardown, no watcher leak).
  */
 
+import { watch as chokidarWatch, type FSWatcher } from "chokidar";
+import { Data, Deferred, Effect, Ref, Scope, Stream } from "effect";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { watch as chokidarWatch, type FSWatcher } from "chokidar";
-import { Deferred, Effect, Ref, Scope, Stream } from "effect";
 import {
   type Connection,
   type Diagnostic,
@@ -32,26 +32,62 @@ import {
   type PublishDiagnosticsParams,
   TextDocumentSyncKind,
 } from "vscode-languageserver";
+import type { WorkspaceEngine } from "./workspace-engine.js";
 import { clearWorkspaceCache } from "../analyzer/project/cache/index.js";
 import {
-  WORKSPACE_FILE_NAME,
   discoverWorkspace,
+  WORKSPACE_FILE_NAME,
   workspacePackageCycleDiagnostics,
 } from "../analyzer/workspace/index.js";
+import { CONFIG_FILE_NAME, loadWorkspaceConfig } from "./config-loader.js";
 import { groupByUri } from "./diagnostic-converter.js";
 import { type DocumentStore, makeDocumentStore } from "./document-store.js";
-import { type WorkspaceEngine } from "./workspace-engine.js";
-import { type WorkspaceRegistry, makeWorkspaceRegistry } from "./workspace-registry.js";
-import { CONFIG_FILE_NAME, loadWorkspaceConfig } from "./config-loader.js";
+import { makeWorkspaceRegistry, type WorkspaceRegistry } from "./workspace-registry.js";
 
 // Resolved at runtime relative to the compiled dist/server/ layout so the
 // advertised server version always matches the published package version.
 const PACKAGE_VERSION: string = (
+  // package.json ships inside this package, so the publish pipeline
+  // guarantees `version` is present and the assertion is safe.
   createRequire(import.meta.url)("../../package.json") as { version: string }
 ).version;
 
+/** Tag for a config-watcher teardown failure; always surfaced as a defect. */
+class WatcherCloseError extends Data.TaggedError("WatcherCloseError")<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
 const log = (message: string): void => {
   process.stderr.write(`[safer-architecture-lsp] ${message}\n`);
+};
+
+/**
+ * Log text for a rejected host call.
+ * @param cause Rejection value from the LSP connection or the watcher.
+ * @returns The error message, or a fixed string for non-`Error` rejections,
+ * so nothing is stringified through `Object.prototype.toString`.
+ */
+const describeFailure = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : "non-Error rejection";
+
+/**
+ * Log/diagnostic text for an engine failure.
+ * @param failure Engine error carrying its own message plus the value that was thrown.
+ * @param failure.message The engine's own summary of the failed call.
+ * @param failure.cause Whatever the failing call threw; may be anything at all.
+ * @returns The thrown value's text when it is an `Error` or a non-empty string,
+ * and the failure's own message otherwise, so an opaque object never reaches the
+ * user as `[object Object]`.
+ */
+const describeAnalysisFailure = (failure: {
+  readonly message: string;
+  readonly cause: unknown;
+}): string => {
+  const { cause } = failure;
+  if (cause instanceof Error) {return cause.message;}
+  if (typeof cause === "string" && cause.length > 0) {return cause;}
+  return failure.message;
 };
 
 interface ServerDeps {
@@ -65,7 +101,7 @@ interface ServerDeps {
    * arriving before registration completes still publishes diagnostics
    * once the engine exists.
    */
-  readonly ready: Deferred.Deferred<void>;
+  readonly ready: Deferred.Deferred<undefined>;
 
   /**
    * URIs this server last published diagnostics for, per workspace
@@ -108,10 +144,10 @@ const findEngineForUri = (
     // to the most specific one.
     let best: { root: string; len: number } | null = null;
     for (const root of roots) {
-      if (!filePath.startsWith(root + path.sep) && filePath !== root) continue;
-      if (best === null || root.length > best.len) best = { root, len: root.length };
+      if (!filePath.startsWith(root + path.sep) && filePath !== root) {continue;}
+      if (best === null || root.length > best.len) {best = { root, len: root.length };}
     }
-    if (best === null) return null;
+    if (best === null) {return null;}
     return yield* registry.findByProjectRoot(best.root);
   });
 
@@ -119,16 +155,22 @@ const sendDiagnostics = (
   deps: ServerDeps,
   uri: string,
   diagnostics: readonly Diagnostic[],
-): Effect.Effect<void> =>
+): Effect.Effect<undefined> =>
   Effect.sync(() => {
     const params: PublishDiagnosticsParams = { uri, diagnostics: [...diagnostics] };
-    deps.connection.sendDiagnostics(params);
+    // Fire-and-forget, so a publish loop never stalls on the wire. The
+    // rejection handler keeps a failed write off the unhandled-rejection
+    // path and onto stderr, which is the only stream `serve` can log to.
+    deps.connection.sendDiagnostics(params).catch((cause: unknown) => {
+      log(`sendDiagnostics failed for ${uri}: ${describeFailure(cause)}`);
+    });
+    return undefined;
   });
 
 const sendMergedDiagnostics = (
   deps: ServerDeps,
   uri: string,
-): Effect.Effect<void> =>
+): Effect.Effect<undefined> =>
   Effect.gen(function* () {
     const projectReports = yield* Ref.get(deps.published);
     const workspaceReports = yield* Ref.get(deps.workspacePublished);
@@ -136,10 +178,16 @@ const sendMergedDiagnostics = (
       ...projectReports.values(),
       ...workspaceReports.values(),
     ].flatMap((report) => report.get(uri) ?? []);
-    yield* sendDiagnostics(deps, uri, diagnostics);
+    return yield* sendDiagnostics(deps, uri, diagnostics);
   });
 
-/** A file-level error diagnostic built outside the analyzer (config problems, engine crashes). */
+/**
+ * A file-level error diagnostic built outside the analyzer (config problems, engine crashes).
+ * @param code Stable identifier for the failure kind, so clients can group
+ * and filter these the way they do analyzer findings.
+ * @param message Text shown to the user; says what coverage was lost.
+ * @returns A diagnostic anchored to the first character of the file.
+ */
 const serverErrorDiagnostic = (code: string, message: string): Diagnostic => ({
   range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
   severity: DiagnosticSeverity.Error,
@@ -154,11 +202,15 @@ const serverErrorDiagnostic = (code: string, message: string): Diagnostic => ({
  * explicit empty publish so stale squiggles clear. Engine failures are
  * surfaced as an error diagnostic on the workspace's config path —
  * a crashed analysis must never present as "architecture clean".
+ * @param deps Holds the connection and the record of what this workspace
+ * published last, which decides what has to be cleared.
+ * @param engine Workspace whose full report is recomputed now.
+ * @returns Effect completing once every affected URI has been sent.
  */
 const publishWorkspace = (
   deps: ServerDeps,
   engine: WorkspaceEngine,
-): Effect.Effect<void> =>
+): Effect.Effect<undefined> =>
   Effect.gen(function* () {
     const startedAt = Date.now();
     const root = engine.projectRoot;
@@ -177,20 +229,22 @@ const publishWorkspace = (
       nextUris.set(configUri, [
         serverErrorDiagnostic(
           "architecture-analysis-error",
-          `Architecture analysis crashed for ${root}: ${String(outcome.error.cause ?? outcome.error.message)}. Until this is fixed the workspace has NO architecture coverage.`,
+          `Architecture analysis crashed for ${root}: ${describeAnalysisFailure(outcome.error)}. Until this is fixed the workspace has NO architecture coverage.`,
         ),
       ]);
-      yield* Effect.sync(() => log(`analysis failed for ${root}: ${outcome.error.message}`));
+      yield* Effect.sync(() => { log(`analysis failed for ${root}: ${outcome.error.message}`); });
     }
 
-    const previous = (yield* Ref.get(deps.published)).get(root) ?? new Map();
+    const previous =
+      (yield* Ref.get(deps.published)).get(root) ??
+      new Map<string, readonly Diagnostic[]>();
     const affectedUris = new Set([...previous.keys(), ...nextUris.keys()]);
     yield* Ref.update(deps.published, (map) => {
       const next = new Map(map);
       next.set(root, nextUris);
       return next;
     });
-    for (const uri of affectedUris) yield* sendMergedDiagnostics(deps, uri);
+    for (const uri of affectedUris) {yield* sendMergedDiagnostics(deps, uri);}
     yield* Effect.sync(() => {
       if (outcome.ok) {
         log(
@@ -198,6 +252,7 @@ const publishWorkspace = (
         );
       }
     });
+    return undefined;
   });
 
 const handleInitialize = (): InitializeResult => ({
@@ -223,18 +278,23 @@ const handleInitialize = (): InitializeResult => ({
  * Register (or re-register) one workspace: load its config file, build
  * the engine, surface config problems as a diagnostic on the config
  * file, wire the invalidation stream, and publish the initial report.
+ * @param deps Registry the engine is recorded in and connection the
+ * initial diagnostics go out on.
+ * @param root Project root whose config file and engine are (re)loaded.
+ * @returns Effect completing after the first report is published; the
+ * required `Scope` owns the engine and its invalidation subscriber.
  */
 const attachProject = (
   deps: ServerDeps,
   root: string,
-): Effect.Effect<void, never, Scope.Scope> =>
+): Effect.Effect<undefined, never, Scope.Scope> =>
   Effect.gen(function* () {
     const config = loadWorkspaceConfig(root);
     const engine = yield* deps.registry.register(root, config.options);
     yield* Effect.sync(() =>
-      log(
+      { log(
         `workspace ${root} registered (options: ${config.source}${config.problem === null ? "" : "; config INVALID, using defaults"})`,
-      ),
+      ); },
     );
 
     const configUri = pathToFileURL(config.configPath).toString();
@@ -253,44 +313,66 @@ const attachProject = (
     yield* Effect.forkScoped(
       Stream.runForEach(engine.invalidations, () => publishWorkspace(deps, engine)),
     );
-    yield* publishWorkspace(deps, engine);
+    return yield* publishWorkspace(deps, engine);
   });
 
-/** Tear the workspace down and clear everything it ever published. */
-const detachProject = (deps: ServerDeps, root: string): Effect.Effect<void> =>
+/**
+ * Tear the workspace down and clear everything it ever published.
+ * @param deps Source of the project's last published set, which is what
+ * has to be republished as empty.
+ * @param root Project root to unregister.
+ * @returns Effect completing once the engine is released and its
+ * squiggles are gone from every file it had touched.
+ */
+const detachProject = (deps: ServerDeps, root: string): Effect.Effect<undefined> =>
   Effect.gen(function* () {
-    const previous = (yield* Ref.get(deps.published)).get(root) ?? new Map();
+    const previous =
+      (yield* Ref.get(deps.published)).get(root) ??
+      new Map<string, readonly Diagnostic[]>();
     yield* Ref.update(deps.published, (map) => {
       const next = new Map(map);
       next.delete(root);
       return next;
     });
-    for (const uri of previous.keys()) yield* sendMergedDiagnostics(deps, uri);
+    for (const uri of previous.keys()) {yield* sendMergedDiagnostics(deps, uri);}
     yield* deps.registry.unregister(root);
-    yield* Effect.sync(() => log(`workspace ${root} detached`));
+    yield* Effect.sync(() => { log(`workspace ${root} detached`); });
+    return undefined;
   });
 
-/** Rebuild the workspace's engine after a config change. */
+/**
+ * Publish the findings that belong to the workspace itself rather than
+ * to any one project (bad manifest, package cycles), clearing every URI
+ * that dropped out of the previous set. Kept separate from project
+ * diagnostics so either side can be replaced without erasing the other.
+ * @param deps Holds this root's last workspace-level publish.
+ * @param root Client workspace folder the findings are recorded under.
+ * @param diagnosticsByUri Findings to publish now, keyed by document URI.
+ * @returns Effect completing once every affected URI has been sent.
+ */
 const publishWorkspaceDiagnostics = (
   deps: ServerDeps,
   root: string,
   diagnosticsByUri: ReadonlyMap<string, readonly Diagnostic[]>,
-): Effect.Effect<void> =>
+): Effect.Effect<undefined> =>
   Effect.gen(function* () {
-    const previous = (yield* Ref.get(deps.workspacePublished)).get(root) ?? new Map();
+    const previous =
+      (yield* Ref.get(deps.workspacePublished)).get(root) ??
+      new Map<string, readonly Diagnostic[]>();
     const affectedUris = new Set([...previous.keys(), ...diagnosticsByUri.keys()]);
     yield* Ref.update(deps.workspacePublished, (map) => {
       const next = new Map(map);
       next.set(root, diagnosticsByUri);
       return next;
     });
-    for (const uri of affectedUris) yield* sendMergedDiagnostics(deps, uri);
+    for (const uri of affectedUris) {yield* sendMergedDiagnostics(deps, uri);}
+    return undefined;
   });
 
 const attachWorkspaceRoot = (
   deps: ServerDeps,
   root: string,
-): Effect.Effect<void, never, Scope.Scope> =>
+): Effect.Effect<undefined, never, Scope.Scope> =>
   Effect.gen(function* () {
     const discovery = discoverWorkspace(root);
     if (!discovery.ok) {
@@ -306,7 +388,7 @@ const attachWorkspaceRoot = (
         next.set(root, []);
         return next;
       });
-      return;
+      return undefined;
     }
 
     const projectRoots = discovery.workspace.projects.map((project) => project.root);
@@ -323,14 +405,15 @@ const attachWorkspaceRoot = (
     );
     yield* publishWorkspaceDiagnostics(deps, root, cycleDiagnostics);
     yield* Effect.sync(() =>
-      log(`workspace root ${root} attached with ${projectRoots.length} project(s)`),
+      { log(`workspace root ${root} attached with ${projectRoots.length} project(s)`); },
     );
+    return undefined;
   });
 
-const detachWorkspaceRoot = (deps: ServerDeps, root: string): Effect.Effect<void> =>
+const detachWorkspaceRoot = (deps: ServerDeps, root: string): Effect.Effect<undefined> =>
   Effect.gen(function* () {
     const projects = (yield* Ref.get(deps.workspaceProjects)).get(root) ?? [];
-    for (const projectRoot of projects) yield* detachProject(deps, projectRoot);
+    for (const projectRoot of projects) {yield* detachProject(deps, projectRoot);}
     yield* Ref.update(deps.workspaceProjects, (map) => {
       const next = new Map(map);
       next.delete(root);
@@ -342,18 +425,19 @@ const detachWorkspaceRoot = (deps: ServerDeps, root: string): Effect.Effect<void
       next.delete(root);
       return next;
     });
+    return undefined;
   });
 
 const reloadWorkspaceRoot = (
   deps: ServerDeps,
   root: string,
-): Effect.Effect<void, never, Scope.Scope> =>
+): Effect.Effect<undefined, never, Scope.Scope> =>
   Effect.gen(function* () {
-    yield* Effect.sync(() => log(`workspace metadata change detected for ${root}; reloading`));
+    yield* Effect.sync(() => { log(`workspace metadata change detected for ${root}; reloading`); });
     yield* detachWorkspaceRoot(deps, root);
-    if (!deps.configWatchers.has(root)) return;
+    if (!deps.configWatchers.has(root)) {return undefined;}
     yield* attachWorkspaceRoot(deps, root);
-    yield* syncWorkspaceWatcherPaths(deps, root);
+    return yield* syncWorkspaceWatcherPaths(deps, root);
   });
 
 function workspaceMetadataPaths(root: string): string[] {
@@ -369,36 +453,55 @@ function workspaceMetadataPaths(root: string): string[] {
       paths.add(project.packageJsonPath);
     }
   }
-  return [...paths].sort();
+  // Plain code-unit ordering, matching the default `.sort()` this replaces, so
+  // the watched-path set stays byte-identical across locales.
+  return [...paths].sort(compareCodeUnits);
 }
 
-const syncWorkspaceWatcherPaths = (
+/**
+ * Code-unit string ordering, identical to a comparator-less `.sort()`.
+ * @param a Left operand.
+ * @param b Right operand.
+ * @returns Negative, zero, or positive per the `Array.prototype.sort` contract.
+ */
+function compareCodeUnits(a: string, b: string): number {
+  if (a < b) {return -1;}
+  if (a > b) {return 1;}
+  return 0;
+}
+
+// Declared as a hoisted function so `reloadWorkspaceRoot`, which runs after
+// the watcher is installed, can call it from above its definition.
+function syncWorkspaceWatcherPaths(
   deps: ServerDeps,
   root: string,
-): Effect.Effect<void> =>
-  Effect.promise(async () => {
+): Effect.Effect<undefined> {
+  return Effect.sync(() => {
     const watcher = deps.configWatchers.get(root);
-    if (watcher === undefined) return;
+    if (watcher === undefined) {return undefined;}
     const previous = deps.configWatcherPaths.get(root) ?? new Set<string>();
     const next = new Set(workspaceMetadataPaths(root));
     const removed = [...previous].filter((candidate) => !next.has(candidate));
     const added = [...next].filter((candidate) => !previous.has(candidate));
-    if (removed.length > 0) await watcher.unwatch(removed);
-    if (added.length > 0) watcher.add(added);
+    // chokidar 5's `unwatch`/`add` are synchronous and return the watcher.
+    if (removed.length > 0) {watcher.unwatch(removed);}
+    if (added.length > 0) {watcher.add(added);}
     deps.configWatcherPaths.set(root, next);
+    return undefined;
   });
+}
 
 function scheduleWorkspaceReload(
   deps: ServerDeps,
   root: string,
-  runInScope: (effect: Effect.Effect<void, never, Scope.Scope>) => void,
+  runInScope: (effect: Effect.Effect<undefined, never, Scope.Scope>) => void,
 ): void {
   const previous = deps.reloadTimers.get(root);
-  if (previous !== undefined) clearTimeout(previous);
+  if (previous !== undefined) {clearTimeout(previous);}
   const timer = setTimeout(() => {
     deps.reloadTimers.delete(root);
     const lock = deps.reloadLocks.get(root);
-    if (lock === undefined || !deps.configWatchers.has(root)) return;
+    if (lock === undefined || !deps.configWatchers.has(root)) {return;}
     runInScope(lock.withPermits(1)(reloadWorkspaceRoot(deps, root)));
   }, 75);
   deps.reloadTimers.set(root, timer);
@@ -408,12 +511,24 @@ function scheduleWorkspaceReload(
  * Watch the workspace's config file so edits take effect without a
  * server restart. The watcher lives outside the engine's child scope
  * (it triggers engine replacement) and is closed on detach/shutdown.
+ * @param deps Where the watcher, its debounce timer, and the lock that
+ * serializes reloads are registered.
+ * @param root Workspace root whose manifest, config, and package files
+ * are watched, including those of its member projects.
+ * @param runInScope Escape hatch for the chokidar callback, which has no
+ * Effect context of its own, to run a reload under the server's scope.
+ * @returns Effect that installs the watcher and closes it on release.
  */
 const watchWorkspaceConfig = (
   deps: ServerDeps,
   root: string,
-  runInScope: (effect: Effect.Effect<void, never, Scope.Scope>) => void,
-): Effect.Effect<void, never, Scope.Scope> =>
+  runInScope: (effect: Effect.Effect<undefined, never, Scope.Scope>) => void,
+): Effect.Effect<undefined, never, Scope.Scope> =>
+  // The watcher must outlive this call, so the `Scope` requirement propagates to the
+  // caller: `serve` in src/server/index.ts wraps `makeLspServer` in `Effect.scoped`.
+  // Closing over a local scope here would release the watcher before the workspace it
+  // watches is ever detached.
+  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- the caller owns the Scope, per the note above
   Effect.acquireRelease(
     Effect.sync(() => {
       const watchedPaths = workspaceMetadataPaths(root);
@@ -421,7 +536,7 @@ const watchWorkspaceConfig = (
         ignoreInitial: true,
         persistent: true,
       });
-      const onEvent = (): void => scheduleWorkspaceReload(deps, root, runInScope);
+      const onEvent = (): void => { scheduleWorkspaceReload(deps, root, runInScope); };
       watcher.on("add", onEvent);
       watcher.on("change", onEvent);
       watcher.on("unlink", onEvent);
@@ -433,76 +548,94 @@ const watchWorkspaceConfig = (
       return watcher;
     }),
     (watcher) =>
-      Effect.promise(async () => {
+      Effect.suspend(() => {
         const timer = deps.reloadTimers.get(root);
-        if (timer !== undefined) clearTimeout(timer);
+        if (timer !== undefined) {clearTimeout(timer);}
         deps.reloadTimers.delete(root);
         deps.configWatcherPaths.delete(root);
         deps.reloadLocks.delete(root);
-        await watcher.close();
+        // Same shape as the engine's watcher release: a close failure is a
+        // defect, never a recoverable error, so release stays `never`-failing.
+        return Effect.tryPromise({
+          try: () => watcher.close(),
+          catch: (cause) =>
+            new WatcherCloseError({ message: `watcher.close failed for ${root}`, cause }),
+        }).pipe(Effect.orDie);
       }),
-  ).pipe(Effect.asVoid);
+  ).pipe(Effect.as(undefined));
+
+/**
+ * The single-root fields `initialize` carried before workspace folders
+ * existed. The protocol retired both in favour of `workspaceFolders`, but
+ * plenty of clients still send only these, and total silence for them would
+ * be indistinguishable from a clean workspace — so the server reads them
+ * through this narrow structural view of `InitializeParams`.
+ */
+interface LegacyInitializeRoots {
+  readonly rootUri?: string | null;
+  readonly rootPath?: string | null;
+}
 
 const workspaceRootsFrom = (params: InitializeParams): readonly string[] => {
   const folders = params.workspaceFolders;
   if (folders && folders.length > 0) {
     return folders.map((folder) => fileURLToPath(folder.uri));
   }
-  // Plenty of clients still send only rootUri/rootPath; total silence
-  // for them would be indistinguishable from a clean workspace.
-  if (params.rootUri) return [fileURLToPath(params.rootUri)];
-  if (params.rootPath) return [path.resolve(params.rootPath)];
+  const legacy: LegacyInitializeRoots = params;
+  if (legacy.rootUri) {return [fileURLToPath(legacy.rootUri)];}
+  if (legacy.rootPath) {return [path.resolve(legacy.rootPath)];}
   return [];
 };
 
 const registerInitialWorkspaces = (
   deps: ServerDeps,
   params: InitializeParams,
-  runInScope: (effect: Effect.Effect<void, never, Scope.Scope>) => void,
-): Effect.Effect<void, never, Scope.Scope> =>
+  runInScope: (effect: Effect.Effect<undefined, never, Scope.Scope>) => void,
+): Effect.Effect<undefined, never, Scope.Scope> =>
   Effect.gen(function* () {
     const roots = workspaceRootsFrom(params);
     if (roots.length === 0) {
       yield* Effect.sync(() =>
-        log("no workspace folders, rootUri, or rootPath in initialize; nothing to analyze"),
+        { log("no workspace folders, rootUri, or rootPath in initialize; nothing to analyze"); },
       );
     }
     for (const root of roots) {
       yield* attachWorkspaceRoot(deps, root);
       yield* watchWorkspaceConfig(deps, root, runInScope);
     }
+    return undefined;
   });
 
 const handleDidOpen = (
   deps: ServerDeps,
   td: { uri: string; languageId: string; version: number; text: string },
-): Effect.Effect<void> =>
+): Effect.Effect<undefined> =>
   Effect.gen(function* () {
     yield* deps.docs.open(td);
     yield* Deferred.await(deps.ready);
     const engine = yield* findEngineForUri(deps.registry, td.uri);
-    if (engine === null) return;
-    yield* publishWorkspace(deps, engine);
+    if (engine === null) {return undefined;}
+    return yield* publishWorkspace(deps, engine);
   });
 
 const handleDidSave = (
   deps: ServerDeps,
   uri: string,
-): Effect.Effect<void> =>
+): Effect.Effect<undefined> =>
   Effect.gen(function* () {
     yield* Deferred.await(deps.ready);
     const engine = yield* findEngineForUri(deps.registry, uri);
-    if (engine === null) return;
+    if (engine === null) {return undefined;}
     // Force-invalidate so the next lint sees the saved content, even
     // if the watcher is slower than our handler.
-    yield* Effect.sync(() => clearWorkspaceCache(engine.projectRoot));
-    yield* publishWorkspace(deps, engine);
+    yield* Effect.sync(() => { clearWorkspaceCache(engine.projectRoot); });
+    return yield* publishWorkspace(deps, engine);
   });
 
-const handleDidClose = (deps: ServerDeps, uri: string): Effect.Effect<void> =>
+const handleDidClose = (deps: ServerDeps, uri: string): Effect.Effect<undefined> =>
   // The document store forgets the buffer, but published diagnostics
   // stay: findings for a file exist whether or not it is open.
-  deps.docs.close(uri);
+  deps.docs.close(uri).pipe(Effect.as(undefined));
 
 const setupTextHandlers = (deps: ServerDeps): void => {
   deps.connection.onInitialized(() => {
@@ -516,7 +649,7 @@ const setupTextHandlers = (deps: ServerDeps): void => {
 
   deps.connection.onDidChangeTextDocument((params) => {
     const last = params.contentChanges.at(-1);
-    if (last === undefined || !("text" in last)) return;
+    if (last === undefined || !("text" in last)) {return;}
     // Full sync: the last change carries the whole document.
     Effect.runFork(
       deps.docs.update(params.textDocument.uri, params.textDocument.version, last.text),
@@ -537,10 +670,14 @@ const setupTextHandlers = (deps: ServerDeps): void => {
  * Folder add/remove handling. Registered only when the client
  * advertised `workspace.workspaceFolders` support — the vscode
  * languageserver workspace proxy throws otherwise.
+ * @param deps Server state each added folder is attached to and each
+ * removed folder — watcher, timer, and lock included — is stripped from.
+ * @param runInScope Runs the attach or detach work under the server's
+ * scope, since the folder-change callback is outside the Effect runtime.
  */
 const setupWorkspaceFolderHandler = (
   deps: ServerDeps,
-  runInScope: (effect: Effect.Effect<void, never, Scope.Scope>) => void,
+  runInScope: (effect: Effect.Effect<undefined, never, Scope.Scope>) => void,
 ): void => {
   deps.connection.workspace.onDidChangeWorkspaceFolders((event) => {
     for (const removed of event.removed) {
@@ -548,9 +685,15 @@ const setupWorkspaceFolderHandler = (
       const watcher = deps.configWatchers.get(root);
       deps.configWatchers.delete(root);
       const timer = deps.reloadTimers.get(root);
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {clearTimeout(timer);}
       deps.reloadTimers.delete(root);
-      if (watcher) void watcher.close();
+      if (watcher) {
+        // Detached on purpose: the folder-change callback must return before
+        // the close settles. Failures go to stderr, never stdout.
+        watcher.close().catch((cause: unknown) => {
+          log(`watcher close failed for ${root}: ${describeFailure(cause)}`);
+        });
+      }
       const lock = deps.reloadLocks.get(root);
       const detach = detachWorkspaceRoot(deps, root);
       runInScope(lock === undefined ? detach : lock.withPermits(1)(detach));
@@ -560,7 +703,7 @@ const setupWorkspaceFolderHandler = (
       runInScope(
         Effect.gen(function* () {
           yield* attachWorkspaceRoot(deps, root);
-          yield* watchWorkspaceConfig(deps, root, runInScope);
+          return yield* watchWorkspaceConfig(deps, root, runInScope);
         }),
       );
     }
@@ -572,7 +715,7 @@ const setupWorkspaceFolderHandler = (
  * sends `exit` (or `shutdownRequested` fails closed on stdio loss); the
  * ambient `Scope` then releases every workspace engine before the
  * process ends, giving the protocol a real teardown path.
- * @param connection vscode-languageserver Connection (stdio in
+ * @param connection Vscode-languageserver Connection (stdio in
  * production, in-memory for tests).
  * @returns Effect that completes on protocol exit; requires a `Scope`.
  */
@@ -582,7 +725,7 @@ export const makeLspServer = (
   Effect.gen(function* () {
     const docs = yield* makeDocumentStore();
     const registry = yield* makeWorkspaceRegistry();
-    const ready = yield* Deferred.make<void>();
+    const ready = yield* Deferred.make<undefined>();
     const published = yield* Ref.make<
       ReadonlyMap<string, ReadonlyMap<string, readonly Diagnostic[]>>
     >(new Map());
@@ -605,7 +748,7 @@ export const makeLspServer = (
     };
 
     const scope = yield* Effect.scope;
-    const runInScope = (effect: Effect.Effect<void, never, Scope.Scope>): void => {
+    const runInScope = (effect: Effect.Effect<undefined, never, Scope.Scope>): void => {
       Effect.runFork(effect.pipe(Scope.extend(scope)));
     };
 
@@ -634,7 +777,7 @@ export const makeLspServer = (
 
     setupTextHandlers(deps);
 
-    yield* Effect.sync(() => connection.listen());
+    yield* Effect.sync(() => { connection.listen(); });
 
     // Poll for initialize to arrive, then register workspaces under
     // the ambient Scope so engines release on server shutdown.
@@ -642,12 +785,13 @@ export const makeLspServer = (
     // on it can proceed.
     yield* Effect.forkScoped(
       Effect.gen(function* () {
-        while (initParams === null) {
+        let params: InitializeParams | null = initParams;
+        while (params === null) {
           yield* Effect.sleep("50 millis");
+          params = initParams;
         }
-        const params: InitializeParams = initParams;
         if (params.capabilities.workspace?.workspaceFolders === true) {
-          yield* Effect.sync(() => setupWorkspaceFolderHandler(deps, runInScope));
+          yield* Effect.sync(() => { setupWorkspaceFolderHandler(deps, runInScope); });
         }
         yield* registerInitialWorkspaces(deps, params, runInScope);
         yield* Deferred.succeed(ready, undefined);

@@ -1,8 +1,15 @@
+/**
+ * @file Analysis program and source-file selection. Builds the TypeScript
+ * program the passes read, scoped to the workspace rather than to whatever
+ * tsconfig happens to sit above it, and narrows its files down to the
+ * project's own code and to the surface its package exports.
+ */
+
 import path from "node:path";
 import ts from "typescript";
-import { replaceKnownExtension, SOURCE_EXTENSIONS, withTrailingSeparator } from "./source-paths.js";
-import { collectPackageExportEntries } from "./package-exports/index.js";
 import type { PackageJson, ResolvedArchitectureOptions } from "./diagnostics/index.js";
+import { collectPackageExportEntries } from "./package-exports/index.js";
+import { replaceKnownExtension, SOURCE_EXTENSIONS, withTrailingSeparator } from "./source-paths.js";
 
 const PUBLIC_ENTRYPOINT_CANDIDATES = [
   "src/index.ts",
@@ -11,22 +18,31 @@ const PUBLIC_ENTRYPOINT_CANDIDATES = [
   "index.tsx",
 ] as const;
 
+/**
+ * Build the program every analysis pass reads, from the configured tsconfig
+ * or the nearest one above the project root. Null means analysis cannot
+ * run; `programHealth` reports which of the two causes applies.
+ * @param options Resolved rule options naming the project root and tsconfig.
+ * @param oldProgram Program from the previous run, whose unchanged source
+ * files are reused so a rebuild stays incremental.
+ * @returns The analysis program, or null when no usable tsconfig was found.
+ */
 export function createProgram(
   options: ResolvedArchitectureOptions,
   oldProgram?: ts.Program,
 ): ts.Program | null {
   const configPath =
     options.tsconfigPath ??
-    ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
-  if (!configPath) return null;
+    ts.findConfigFile(options.projectRoot, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json");
+  if (!configPath) {return null;}
 
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  const configFile = ts.readConfigFile(configPath, (fileName) => ts.sys.readFile(fileName));
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,
     path.dirname(configPath),
   );
-  if (parsed.errors.length > 0) return null;
+  if (parsed.errors.length > 0) {return null;}
 
   // A tsconfig found above the workspace root may enumerate a whole
   // monorepo; scope the ROOT file set to this workspace so each engine
@@ -39,33 +55,14 @@ export function createProgram(
   const rootNames = scoped.length > 0 ? scoped : parsed.fileNames;
 
   // Passing the previous program lets TypeScript reuse every unchanged
-  // SourceFile, turning per-save rebuilds from cold to incremental.
-  return ts.createProgram(rootNames, analysisOptions(parsed.options), undefined, oldProgram);
-}
-
-/**
- * Neutralize inherited build and emit modes for the analysis program:
- * force `noEmit`, and disable composite, declaration, and incremental
- * modes. Lib diagnostics are skipped because analysis consumes checker
- * symbols but does not need to validate dependency declarations. These
- * are isolation safeguards; root-file scoping reduces cold cost, while
- * previous-program reuse speeds incremental rebuilds.
- */
-function analysisOptions(base: ts.CompilerOptions): ts.CompilerOptions {
-  const inherited = { ...base };
-  delete inherited.declarationMap;
-  delete inherited.sourceMap;
-  delete inherited.tsBuildInfoFile;
-
-  return {
-    ...inherited,
-    noEmit: true,
-    composite: false,
-    declaration: false,
-    incremental: false,
-    skipLibCheck: true,
-    skipDefaultLibCheck: true,
-  };
+  // SourceFile, turning per-save rebuilds from cold to incremental. The
+  // first run has none, so the two cases are separated here rather than
+  // forwarding an unresolved optional into the compiler.
+  const compilerOptions = analysisOptions(parsed.options);
+  if (oldProgram === undefined) {
+    return ts.createProgram(rootNames, compilerOptions);
+  }
+  return ts.createProgram(rootNames, compilerOptions, undefined, oldProgram);
 }
 
 /** Why `createProgram` would return null, in user-actionable terms. */
@@ -77,10 +74,17 @@ export interface ProgramHealth {
   readonly detail: string;
 }
 
+/**
+ * Restate a null from `createProgram` as something a user can act on,
+ * naming the tsconfig that was consulted and what went wrong with it.
+ * @param options Resolved rule options naming the project root and tsconfig.
+ * @returns An "ok" status, or the missing or unparseable case with the
+ * config path and a readable cause.
+ */
 export function programHealth(options: ResolvedArchitectureOptions): ProgramHealth {
   const configPath =
     options.tsconfigPath ??
-    ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
+    ts.findConfigFile(options.projectRoot, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json");
   if (!configPath) {
     return {
       status: "missing-tsconfig",
@@ -88,7 +92,7 @@ export function programHealth(options: ResolvedArchitectureOptions): ProgramHeal
       detail: `no tsconfig.json found at or above ${options.projectRoot}; architecture analysis needs a TypeScript project`,
     };
   }
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  const configFile = ts.readConfigFile(configPath, (fileName) => ts.sys.readFile(fileName));
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,
@@ -107,17 +111,15 @@ export function programHealth(options: ResolvedArchitectureOptions): ProgramHeal
   return { status: "ok", configPath, detail: "" };
 }
 
-export function projectSourceFiles(
-  program: ts.Program,
-  projectRoot: string,
-): readonly ts.SourceFile[] {
-  const root = withTrailingSeparator(path.resolve(projectRoot));
-  return program
-    .getSourceFiles()
-    .filter((sourceFile) => isProjectSourceFile(sourceFile, root))
-    .sort((left, right) => left.fileName.localeCompare(right.fileName));
-}
-
+/**
+ * Choose where package-wide diagnostics get attached, preferring a
+ * conventional entrypoint so the finding surfaces at the file a reader
+ * would look in. Falls back to the first project file and then to
+ * `package.json`, because a diagnostic always needs somewhere to land.
+ * @param sourceFiles Project files a report location may be drawn from.
+ * @param projectRoot Root the entrypoint candidates resolve against.
+ * @returns Absolute path to report package-wide findings against.
+ */
 export function findPackageReportFile(
   sourceFiles: readonly ts.SourceFile[],
   projectRoot: string,
@@ -136,6 +138,16 @@ export function findPackageReportFile(
   );
 }
 
+/**
+ * Collect the source files a consumer of the package can reach, by mapping
+ * each declared export target back to the file it is built from. A manifest
+ * that declares no exports falls back to the conventional entrypoints, so
+ * an unpublished project still has a public surface to check.
+ * @param program Program supplying the project's source files.
+ * @param packageJson Manifest whose export targets are traced back to source.
+ * @param options Resolved rule options naming the project root.
+ * @returns The public-surface files; empty when nothing resolves to source.
+ */
 export function publicApiSourceFiles(
   program: ts.Program,
   packageJson: PackageJson,
@@ -146,8 +158,56 @@ export function publicApiSourceFiles(
     projectFiles.map((sourceFile) => [path.resolve(sourceFile.fileName), sourceFile] as const),
   );
   const publicFiles = packageJsonPublicFiles(packageJson, options.projectRoot, byPath);
-  if (publicFiles.size === 0) addEntrypointPublicFiles(publicFiles, options.projectRoot, byPath);
+  if (publicFiles.size === 0) {addEntrypointPublicFiles(publicFiles, options.projectRoot, byPath);}
   return [...publicFiles];
+}
+
+/**
+ * Pick out the project's own code from everything the program loaded,
+ * dropping declaration files and dependencies pulled in transitively.
+ * The result is sorted by path so diagnostics come out in the same order
+ * whatever order the compiler happened to load files in.
+ * @param program Program whose loaded files are filtered.
+ * @param projectRoot Directory a file must sit under to count as the
+ * project's own.
+ * @returns The project's source files, ordered lexicographically by path.
+ */
+export function projectSourceFiles(
+  program: ts.Program,
+  projectRoot: string,
+): readonly ts.SourceFile[] {
+  const root = withTrailingSeparator(path.resolve(projectRoot));
+  return program
+    .getSourceFiles()
+    .filter((sourceFile) => isProjectSourceFile(sourceFile, root))
+    .sort((left, right) => left.fileName.localeCompare(right.fileName));
+}
+
+/**
+ * Neutralize inherited build and emit modes for the analysis program:
+ * force `noEmit`, and disable composite, declaration, and incremental
+ * modes. Lib diagnostics are skipped because analysis consumes checker
+ * symbols but does not need to validate dependency declarations. These
+ * are isolation safeguards; root-file scoping reduces cold cost, while
+ * previous-program reuse speeds incremental rebuilds.
+ * @param base Compiler options as parsed from the project's tsconfig.
+ * @returns The same options with build and emit behaviour stripped out.
+ */
+function analysisOptions(base: ts.CompilerOptions): ts.CompilerOptions {
+  const inherited = { ...base };
+  delete inherited.declarationMap;
+  delete inherited.sourceMap;
+  delete inherited.tsBuildInfoFile;
+
+  return {
+    ...inherited,
+    noEmit: true,
+    composite: false,
+    declaration: false,
+    incremental: false,
+    skipLibCheck: true,
+    skipDefaultLibCheck: true,
+  };
 }
 
 function packageJsonPublicFiles(
@@ -159,7 +219,7 @@ function packageJsonPublicFiles(
   for (const entry of collectPackageExportEntries(packageJson)) {
     const sourcePath = sourcePathForPackageTarget(entry.targetPath, projectRoot, byPath);
     const sourceFile = sourcePath ? byPath.get(sourcePath) : undefined;
-    if (sourceFile) publicFiles.add(sourceFile);
+    if (sourceFile) {publicFiles.add(sourceFile);}
   }
   return publicFiles;
 }
@@ -171,7 +231,7 @@ function addEntrypointPublicFiles(
 ): void {
   for (const candidate of PUBLIC_ENTRYPOINT_CANDIDATES) {
     const sourceFile = byPath.get(path.resolve(projectRoot, candidate));
-    if (sourceFile) publicFiles.add(sourceFile);
+    if (sourceFile) {publicFiles.add(sourceFile);}
   }
 }
 

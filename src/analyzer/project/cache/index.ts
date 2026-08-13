@@ -11,8 +11,8 @@
  */
 
 import type ts from "typescript";
-import { analyzeResolvedArchitecture } from "../../index.js";
 import type { ArchitectureReport, ResolvedArchitectureOptions } from "../diagnostics/index.js";
+import { analyzeResolvedArchitecture } from "../../index.js";
 import { createProgram } from "../source-files.js";
 import {
   computeFileWatermark,
@@ -40,8 +40,8 @@ interface DiskCacheLookup {
  * instances over different roots never collide on the same file.
  */
 export class WorkspaceCache {
-  readonly #reportCache = new Map<string, CachedReport>();
-  readonly #keyCache = new WeakMap<ResolvedArchitectureOptions, string>();
+  private readonly reportCache = new Map<string, CachedReport>();
+  private readonly keyCache = new WeakMap<ResolvedArchitectureOptions, string>();
 
   /**
    * Read or build the architecture report for this workspace. Hits the
@@ -50,7 +50,8 @@ export class WorkspaceCache {
    * (long-lived hosts with in-memory `ts.Program` overlays), so unsaved
    * LSP buffers never collide with the persisted disk report.
    * @param options Resolved architecture options for this workspace.
-   * @param programProvider Lazy `ts.Program` source on cache miss.
+   * @param programProvider Lazy `ts.Program` source on cache miss. When
+   * omitted, the analyzer builds one from the project tsconfig.
    * @param programFingerprint Stable identifier of the program supplied
    * by `programProvider` (e.g., LSP `LanguageService` version). When
    * omitted, the cache treats the program as the canonical disk-backed
@@ -59,31 +60,34 @@ export class WorkspaceCache {
    */
   get(
     options: ResolvedArchitectureOptions,
-    programProvider: () => ts.Program | null = () => createProgram(options),
+    programProvider?: () => ts.Program | null,
     programFingerprint?: string,
   ): ArchitectureReport {
-    const optionsKey = this.#optionsKey(options);
+    const optionsKey = this.optionsKey(options);
     const cacheKey =
       programFingerprint === undefined ? optionsKey : `${optionsKey}|${programFingerprint}`;
     const now = Date.now();
-    const cached = this.#reportCache.get(cacheKey);
-    if (cached !== undefined && cached.expiresAt > now) return cached.report;
+    const cached = this.reportCache.get(cacheKey);
+    if (cached !== undefined && cached.expiresAt > now) {return cached.report;}
 
     const diskLookup =
-      programFingerprint === undefined ? this.#loadFromDiskCache(options) : null;
+      programFingerprint === undefined ? this.loadFromDiskCache(options) : null;
     const fromDisk = diskLookup?.report ?? null;
     if (fromDisk !== null) {
-      this.#reportCache.set(cacheKey, {
+      this.reportCache.set(cacheKey, {
         report: fromDisk,
         expiresAt: now + options.cacheTtlMs,
       });
       return fromDisk;
     }
 
-    const report = analyzeResolvedArchitecture(options, programProvider);
-    this.#reportCache.set(cacheKey, { report, expiresAt: now + options.cacheTtlMs });
+    const report = analyzeResolvedArchitecture(
+      options,
+      programProvider ?? ((): ts.Program | null => createProgram(options)),
+    );
+    this.reportCache.set(cacheKey, { report, expiresAt: now + options.cacheTtlMs });
     if (programFingerprint === undefined) {
-      this.#persistToDiskCache(options, report, diskLookup?.watermark ?? null);
+      this.persistToDiskCache(options, report, diskLookup?.watermark ?? null);
     }
     return report;
   }
@@ -94,20 +98,20 @@ export class WorkspaceCache {
    * watermark matches.
    */
   clear(): void {
-    this.#reportCache.clear();
+    this.reportCache.clear();
   }
 
-  #optionsKey(options: ResolvedArchitectureOptions): string {
-    const cached = this.#keyCache.get(options);
-    if (cached !== undefined) return cached;
+  private optionsKey(options: ResolvedArchitectureOptions): string {
+    const cached = this.keyCache.get(options);
+    if (cached !== undefined) {return cached;}
     const key = JSON.stringify(options);
-    this.#keyCache.set(options, key);
+    this.keyCache.set(options, key);
     return key;
   }
 
-  #loadFromDiskCache(options: ResolvedArchitectureOptions): DiskCacheLookup {
+  private loadFromDiskCache(options: ResolvedArchitectureOptions): DiskCacheLookup {
     const persisted = readDiskCache(options.projectRoot);
-    if (persisted === null) return { report: null, watermark: null };
+    if (persisted === null) {return { report: null, watermark: null };}
     if (persisted.optionsHash !== hashOptions(options)) {
       return { report: null, watermark: null };
     }
@@ -118,7 +122,7 @@ export class WorkspaceCache {
     return { report: hydrateReport(persisted), watermark: currentWatermark };
   }
 
-  #persistToDiskCache(
+  private persistToDiskCache(
     options: ResolvedArchitectureOptions,
     report: ArchitectureReport,
     currentWatermark: ReturnType<typeof computeFileWatermark> | null,
@@ -130,12 +134,6 @@ export class WorkspaceCache {
       discardCacheWriteError(error);
     }
   }
-}
-
-function discardCacheWriteError(_captured: unknown): void {
-  // Best-effort: a write failure (read-only filesystem, missing
-  // node_modules) must not break the lint. The in-memory cache still
-  // covers the rest of this process.
 }
 
 const workspaceCaches = new Map<string, WorkspaceCache>();
@@ -165,4 +163,13 @@ export function getOrCreateWorkspaceCache(projectRoot: string): WorkspaceCache {
  */
 export function clearWorkspaceCache(projectRoot: string): void {
   workspaceCaches.get(projectRoot)?.clear();
+}
+
+// The overload accepts the caught error so the call site can bind it; the
+// implementation drops it.
+function discardCacheWriteError(captured: unknown): void;
+function discardCacheWriteError(): void {
+  // Best-effort: a write failure (read-only filesystem, missing
+  // node_modules) must not break the lint. The in-memory cache still
+  // covers the rest of this process.
 }

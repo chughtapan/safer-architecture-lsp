@@ -1,3 +1,16 @@
+/**
+ * @file Detection of low-cohesion shared kernels: wide modules whose exports
+ * serve mostly disjoint groups of consumers. Cohesion is scored as the median
+ * Jaccard overlap over every pair of exports rather than an average, so one
+ * universally imported symbol cannot mask a grab bag of unrelated ones.
+ */
+
+import type {
+  ExportConsumer,
+  ProjectArchitectureGraph,
+  SourceModule,
+} from "../imports/index.js";
+import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 import {
   explicitFacadeModule,
   generatedModule,
@@ -5,12 +18,6 @@ import {
   resolveProductionModule,
   unionSets,
 } from "../project/index.js";
-import type {
-  ExportConsumer,
-  ProjectArchitectureGraph,
-  SourceModule,
-} from "../imports/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 
 interface ExportConsumerSets {
   readonly consumedExports: readonly string[];
@@ -30,6 +37,18 @@ interface OverlapStats {
   readonly samples: readonly string[];
 }
 
+/**
+ * Report modules that many production files import for unrelated reasons.
+ * Only exports with production consumers are scored, and a module must clear
+ * both the export and consumer minimums before overlap is measured at all,
+ * so a small helper is never judged on two data points.
+ * @param graph Supplies the module list and the per-export consumer records
+ * the overlap score is computed from.
+ * @param options Minimum exports and consumers required before a module is
+ * scored, and the median overlap below which it is reported.
+ * @returns One warning per low-cohesion module, naming its least-overlapping
+ * export pairs; empty when every wide module's exports travel together.
+ */
 export function sharedKernelCohesionDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,
@@ -44,9 +63,9 @@ function sharedKernelCohesionDiagnostic(
   options: ResolvedArchitectureOptions,
   module: SourceModule,
 ): readonly ArchitectureDiagnostic[] {
-  if (!sharedKernelCandidate(module, options)) return [];
+  if (!sharedKernelCandidate(module, options)) {return [];}
   const consumerSets = productionConsumerSets(graph, module);
-  if (!enoughSharedKernelEvidence(consumerSets, options)) return [];
+  if (!enoughSharedKernelEvidence(consumerSets, options)) {return [];}
   const overlap = summarizeExportOverlap(consumerSets);
   if (overlap === null || overlap.medianScore >= options.maxSharedKernelMedianOverlap) {
     return [];
@@ -77,7 +96,7 @@ function productionConsumerSets(
   for (const consumer of graph.exportConsumersByFileName.get(module.fileName) ?? []) {
     addProductionExportConsumer(consumersByExport, graph, consumer);
   }
-  const consumedExports = [...consumersByExport.keys()].sort();
+  const consumedExports = [...consumersByExport.keys()].sort(compareStrings);
   return {
     consumedExports,
     consumersByExport,
@@ -91,7 +110,7 @@ function addProductionExportConsumer(
   consumer: ExportConsumer,
 ): void {
   const consumerModule = graph.modulesByFileName.get(consumer.consumerFile);
-  if (!resolveProductionModule(consumerModule)) return;
+  if (!resolveProductionModule(consumerModule)) {return;}
   const consumers = consumersByExport.get(consumer.exportName) ?? new Set<string>();
   consumers.add(consumer.consumerFile);
   consumersByExport.set(consumer.exportName, consumers);
@@ -101,7 +120,7 @@ function summarizeExportOverlap(
   consumerSets: ExportConsumerSets,
 ): OverlapStats | null {
   const overlaps = exportPairOverlaps(consumerSets);
-  if (overlaps.length === 0) return null;
+  if (overlaps.length === 0) {return null;}
   const sorted = [...overlaps].sort((first, second) => first.score - second.score);
   return {
     medianScore: sorted[Math.floor(sorted.length / 2)]?.score ?? 0,
@@ -169,4 +188,9 @@ function lowCohesionDiagnostic(
       `${overlap.comparisonCount} pairs). ${overlap.samples.join(", ")} are ` +
       "used by mostly different modules. Split cohesive helper modules or expose a small facade.",
   };
+}
+
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

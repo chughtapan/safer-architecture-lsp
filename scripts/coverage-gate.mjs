@@ -18,7 +18,7 @@ const SUMMARY = "coverage/coverage-summary.json";
  * Lines, statements, and branches remap reliably.
  */
 const FLOORS = {
-  "src/analyzer": { lines: 69, branches: 69 },
+  "src/analyzer": { lines: 70, branches: 70 },
   "src/proxy": { lines: 83, branches: 70 },
   "src/server": { lines: 85, branches: 78 },
 };
@@ -44,10 +44,14 @@ function main() {
   }
 
   const totals = new Map();
+  const ungrouped = [];
   for (const [file, entry] of Object.entries(summary)) {
     if (file === "total") continue;
     const group = groupOf(file);
-    if (group === null || FLOORS[group] === undefined) continue;
+    if (group === null || FLOORS[group] === undefined) {
+      ungrouped.push(file);
+      continue;
+    }
     const acc = totals.get(group) ?? Object.fromEntries(METRICS.map((m) => [m, { covered: 0, total: 0 }]));
     for (const metric of METRICS) {
       acc[metric].covered += entry[metric].covered;
@@ -57,6 +61,14 @@ function main() {
   }
 
   const failures = [];
+  // A src file outside every FLOORS group would be silently unmeasured, so the
+  // gate refuses rather than reporting a pass it did not check.
+  if (ungrouped.length > 0) {
+    console.error("coverage-gate: these measured files belong to no floor group:");
+    for (const f of ungrouped) console.error(`  ${f}`);
+    console.error("coverage-gate: add the group to FLOORS or exclude the file in .c8rc.json.");
+    process.exit(1);
+  }
   console.log("group                 metric      actual   floor");
   for (const group of Object.keys(FLOORS)) {
     const acc = totals.get(group);

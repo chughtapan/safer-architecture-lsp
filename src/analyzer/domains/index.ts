@@ -1,15 +1,22 @@
+/**
+ * @file Domain-boundary analysis. Assigns every production module to a
+ * configured domain, a composition root, or nobody, then reports ownership
+ * gaps, imports that reach past a domain's entrypoints, side-effect-only
+ * imports across domains, and cycles between domains.
+ */
+
 import path from "node:path";
-import { makeDirectedGraph } from "../graph/directed-graph.js";
-import {
-  canonicalCyclePath,
-  cyclicStronglyConnectedComponents,
-} from "../graph/strongly-connected-components.js";
-import type { ProjectArchitectureGraph, SourceModule } from "../project/index.js";
 import type {
   ArchitectureDiagnostic,
   DomainDefinition,
   ResolvedArchitectureOptions,
 } from "../project/api/index.js";
+import type { ProjectArchitectureGraph, SourceModule } from "../project/index.js";
+import { makeDirectedGraph } from "../graph/directed-graph.js";
+import {
+  canonicalCyclePath,
+  cyclicStronglyConnectedComponents,
+} from "../graph/strongly-connected-components.js";
 
 type ModuleOwner =
   | { readonly kind: "domain"; readonly domain: DomainDefinition }
@@ -22,11 +29,22 @@ interface DomainEdge {
   readonly source: SourceModule;
 }
 
+/**
+ * Report every domain-boundary violation in the project. A project with no
+ * configured domains opts out of all four rules rather than being reported
+ * as entirely unowned. Test-like modules are ignored on both ends of an edge.
+ * @param graph Modules and local import edges that ownership and the
+ * domain-level edge set are derived from.
+ * @param options Domains, explicit ownership overrides and composition roots
+ * that decide who owns each module; the longest matching root wins.
+ * @returns Diagnostics grouped by rule - ownership gaps, then domain cycles,
+ * entrypoint bypasses and cross-domain side effects.
+ */
 export function domainArchitectureDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
-  if (options.domains.length === 0) return [];
+  if (options.domains.length === 0) {return [];}
   const owners = new Map(
     graph.modules.map((module) => [module.fileName, ownerOf(module, options)] as const),
   );
@@ -40,7 +58,7 @@ export function domainArchitectureDiagnostics(
   for (const edge of graph.localEdges) {
     const source = graph.modulesByFileName.get(edge.from);
     const target = graph.modulesByFileName.get(edge.to);
-    if (source === undefined || target === undefined || source.isTestLike || target.isTestLike) continue;
+    if (source === undefined || target === undefined || source.isTestLike || target.isTestLike) {continue;}
     const from = owners.get(source.fileName);
     const to = owners.get(target.fileName);
     if (from?.kind !== "domain" || to?.kind !== "domain" || from.domain.name === to.domain.name) {
@@ -77,7 +95,7 @@ function ownerOf(module: SourceModule, options: ResolvedArchitectureOptions): Mo
     .find(({ path }) => pathContains(normalize(path), module.relativePath));
   if (explicit !== undefined) {
     const domain = options.domains.find(({ name }) => name === explicit.domain);
-    if (domain !== undefined) return { kind: "domain", domain };
+    if (domain !== undefined) {return { kind: "domain", domain };}
   }
   const domain = options.domains
     .flatMap((candidate) => candidate.roots.map((root) => ({ candidate, root: normalize(root) })))

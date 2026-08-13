@@ -4,22 +4,22 @@
  * into one diagnostic pass.
  */
 
+import type {
+  ArchitectureDiagnostic,
+  ResolvedArchitectureOptions,
+} from "../../project/api/index.js";
+import type { ProjectArchitectureGraph } from "../project-graph/index.js";
 import { distantFolderImportDiagnostics } from "../folder-distance.js";
+import {
+  crossDomainSiblingImportDiagnostics,
+  crossLayerImportDiagnostics,
+} from "./cross-folder.js";
 import {
   folderCycleDiagnostics,
   rootInternalCycleDiagnostics,
   stronglyConnectedFolderComponents,
 } from "./cycles.js";
 import { packageMeshDiagnostics, productionFolderGraph } from "./mesh.js";
-import {
-  crossDomainSiblingImportDiagnostics,
-  crossLayerImportDiagnostics,
-} from "./cross-folder.js";
-import type { ProjectArchitectureGraph } from "../project-graph/index.js";
-import type {
-  ArchitectureDiagnostic,
-  ResolvedArchitectureOptions,
-} from "../../project/api/index.js";
 
 /**
  * Run every folder-graph architecture check against the project graph

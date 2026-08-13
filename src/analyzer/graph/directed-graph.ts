@@ -1,3 +1,10 @@
+/**
+ * @file Deterministic directed-graph construction. Every graph algorithm in the
+ * analyzer reads node and edge order from this index, so the order is fixed
+ * lexicographically here rather than inherited from the filesystem, the parser,
+ * or Map insertion.
+ */
+
 /** A directed edge between two typed string identifiers. */
 export interface DirectedEdge<NodeId extends string> {
   readonly from: NodeId;
@@ -18,6 +25,14 @@ export interface DirectedGraph<
   readonly outgoing: ReadonlyMap<NodeId, readonly Edge[]>;
 }
 
+/**
+ * Build a graph whose nodes and outgoing edges are in lexicographic order.
+ * Nodes referenced only by an edge are added, so the caller may pass the
+ * roots it knows about and let the edges complete the node set.
+ * @param nodeIds Known nodes; edge endpoints outside this list are added.
+ * @param edges Directed edges, canonicalized into the outgoing index.
+ * @returns A graph whose traversal order does not vary between runs.
+ */
 export function makeDirectedGraph<
   NodeId extends string,
   Edge extends DirectedEdge<NodeId>,
@@ -31,8 +46,8 @@ export function makeDirectedGraph<
   const sortedNodeIds = [...allNodeIds].sort(compareNodeIds);
   const sortedEdges = [...edges].sort(compareEdges);
   const outgoing = new Map<NodeId, Edge[]>();
-  for (const nodeId of sortedNodeIds) outgoing.set(nodeId, []);
-  for (const edge of sortedEdges) outgoing.get(edge.from)?.push(edge);
+  for (const nodeId of sortedNodeIds) {outgoing.set(nodeId, []);}
+  for (const edge of sortedEdges) {outgoing.get(edge.from)?.push(edge);}
 
   return {
     nodeIds: sortedNodeIds,

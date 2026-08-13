@@ -1,26 +1,25 @@
 /**
  * @file Long-lived per-workspace engine that the LSP server consumes.
- * Effect-shaped: the file watcher and PubSub are acquired through a
- * `Scope` (callers wrap with `Effect.scoped` so the engine cannot leak
- * resources), and `lintPaths` returns an `Effect` so callers can
- * compose it with the rest of the LSP pipeline. Wraps the
- * `WorkspaceCache` (Phase 5b) without changing it.
+ * Effect-shaped: the file watcher is acquired through a `Scope` (callers wrap
+ * with `Effect.scoped` so the watcher cannot leak), and `lintPaths` returns an
+ * `Effect` so callers can compose it with the rest of the LSP pipeline. The
+ * invalidation PubSub is not scope-managed and is never shut down; it lives as
+ * long as the engine value. Wraps the `WorkspaceCache` (Phase 5b) unchanged.
  */
 
-import path from "node:path";
-import { type FSWatcher, watch as chokidarWatch } from "chokidar";
-import { Data, Effect, PubSub, Scope, Stream } from "effect";
 import type ts from "typescript";
+import { watch as chokidarWatch, type FSWatcher } from "chokidar";
+import { Data, Effect, PubSub, type Scope, Stream } from "effect";
+import path from "node:path";
+import {
+  type ArchitectureDiagnostic,
+  type ArchitectureReport,
+  createProgram, type ResolvedArchitectureOptions
+} from "../analyzer/project/api/index.js";
 import {
   clearWorkspaceCache,
   getOrCreateWorkspaceCache,
 } from "../analyzer/project/cache/index.js";
-import { createProgram } from "../analyzer/project/api/index.js";
-import type {
-  ArchitectureDiagnostic,
-  ArchitectureReport,
-  ResolvedArchitectureOptions,
-} from "../analyzer/project/api/index.js";
 
 /** Tag for engine-internal failure modes. */
 class WorkspaceEngineError extends Data.TaggedError("WorkspaceEngineError")<{
@@ -35,18 +34,18 @@ const TSCONFIG_PREFIX = "tsconfig";
 
 function isIgnoredPath(filePath: string): boolean {
   for (const segment of IGNORED_SEGMENTS) {
-    if (filePath.includes(`${path.sep}${segment}${path.sep}`)) return true;
-    if (filePath.endsWith(`${path.sep}${segment}`)) return true;
+    if (filePath.includes(`${path.sep}${segment}${path.sep}`)) {return true;}
+    if (filePath.endsWith(`${path.sep}${segment}`)) {return true;}
   }
   return false;
 }
 
 function isAnalyzerInput(filePath: string): boolean {
   const base = path.basename(filePath);
-  if (ANALYZER_INPUT_BASENAMES.has(base)) return true;
-  if (base.startsWith(TSCONFIG_PREFIX) && base.endsWith(".json")) return true;
+  if (ANALYZER_INPUT_BASENAMES.has(base)) {return true;}
+  if (base.startsWith(TSCONFIG_PREFIX) && base.endsWith(".json")) {return true;}
   for (const suffix of ANALYZER_INPUT_SUFFIXES) {
-    if (base.endsWith(suffix)) return true;
+    if (base.endsWith(suffix)) {return true;}
   }
   return false;
 }
@@ -80,9 +79,11 @@ export interface WorkspaceEngine {
   /**
    * Stream of cache-invalidation signals. The cache is already cleared
    * by the time a value is emitted; subscribers should re-publish
-   * diagnostics for their open documents.
+   * diagnostics for their open documents. The element type is
+   * `undefined` — the signal carries no payload, and `void` is not a
+   * legal Effect/Stream element type.
    */
-  readonly invalidations: Stream.Stream<void>;
+  readonly invalidations: Stream.Stream<undefined>;
 
   /** Absolute project root this engine is scoped to. */
   readonly projectRoot: string;
@@ -91,6 +92,7 @@ export interface WorkspaceEngine {
 const acquireWatcher = (
   projectRoot: string,
 ): Effect.Effect<FSWatcher, never, Scope.Scope> =>
+  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- the Scope requirement is declared in this function's return type and satisfied by the caller (Effect.scoped in src/server/index.ts); wrapping locally would close the watcher immediately and shorten its lifetime to a single call.
   Effect.acquireRelease(
     Effect.async<FSWatcher>((resume) => {
       // chokidar 5.x dropped glob support: watch the project root
@@ -100,7 +102,7 @@ const acquireWatcher = (
         ignoreInitial: true,
         persistent: true,
       });
-      w.on("ready", () => resume(Effect.succeed(w)));
+      w.on("ready", () => { resume(Effect.succeed(w)); });
     }),
     (w) =>
       Effect.tryPromise({
@@ -112,11 +114,11 @@ const acquireWatcher = (
 
 const wireWatcherToPubSub = (
   watcher: FSWatcher,
-  pubsub: PubSub.PubSub<void>,
+  pubsub: PubSub.PubSub<undefined>,
   projectRoot: string,
 ): void => {
   const onChange = (filePath: string): void => {
-    if (!isAnalyzerInput(filePath)) return;
+    if (!isAnalyzerInput(filePath)) {return;}
     clearWorkspaceCache(projectRoot);
     Effect.runFork(PubSub.publish(pubsub, undefined));
   };
@@ -139,7 +141,7 @@ const buildLintPaths =
         const found: ArchitectureDiagnostic[] = [];
         for (const filePath of paths) {
           const findings = report.diagnosticsByFile.get(path.resolve(filePath));
-          if (findings !== undefined) found.push(...findings);
+          if (findings !== undefined) {found.push(...findings);}
         }
         return found;
       },
@@ -152,9 +154,9 @@ const buildLintPaths =
 
 /**
  * Acquire a workspace engine. The returned `Effect` requires a `Scope`
- * (callers compose with `Effect.scoped` or a `Layer.scoped`); closing
- * the scope releases the watcher and the PubSub, and clears this
- * workspace's cache. No manual `dispose()` to forget.
+ * (callers compose with `Effect.scoped` or a `Layer.scoped`); closing the scope
+ * closes the watcher and clears this workspace's cache. The invalidation PubSub
+ * is not released by the scope. No manual `dispose()` to forget.
  * @param options Resolved architecture options for this workspace.
  * @returns Effect producing the engine; depends on a Scope.
  */
@@ -162,10 +164,10 @@ export const makeWorkspaceEngine = (
   options: ResolvedArchitectureOptions,
 ): Effect.Effect<WorkspaceEngine, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const pubsub = yield* PubSub.unbounded<void>();
+    const pubsub = yield* PubSub.unbounded<undefined>();
     const watcher = yield* acquireWatcher(options.projectRoot);
     yield* Effect.addFinalizer(() =>
-      Effect.sync(() => clearWorkspaceCache(options.projectRoot)),
+      Effect.sync(() => { clearWorkspaceCache(options.projectRoot); }),
     );
     wireWatcherToPubSub(watcher, pubsub, options.projectRoot);
     // Keep the last ts.Program so cache misses rebuild incrementally

@@ -1,0 +1,13 @@
+# Coverage runs here rather than in CI: c8 instrumentation slows the
+# process-spawning suites by roughly an order of magnitude, which pushed the
+# slowest property test past vitest's 30s timeout on CI hardware.
+# Bypass with SKIP_COVERAGE=1 git push.
+sh "$(git rev-parse --show-toplevel)/scripts/pre-push.sh"
+
+# husky sets core.hooksPath, so .git/hooks/pre-push no longer runs on its own.
+# Chain it explicitly or a machine-local hook installed there (gstack's
+# credential-redaction guard, for one) is silently skipped.
+_legacy="$(git rev-parse --git-common-dir)/hooks/pre-push"
+if [ -x "$_legacy" ]; then
+  "$_legacy" "$@"
+fi

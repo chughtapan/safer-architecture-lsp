@@ -1,7 +1,16 @@
+/**
+ * @file Local module resolution. Resolution is delegated to TypeScript itself
+ * so `paths` aliases, package exports, module suffixes, and extension
+ * substitution behave exactly as they do in the real build; a relative-path
+ * fallback covers fixture programs whose compiler options are incomplete.
+ * Every answer is cached and can be replayed as a snapshot, so one graph build
+ * resolves each specifier once and can show what it decided.
+ */
+
 import path from "node:path";
 import ts from "typescript";
-import { candidateFileNames, SOURCE_EXTENSIONS } from "../project/api/index.js";
 import type { ModuleResolutionSnapshotEntry } from "../project/index.js";
+import { candidateFileNames, SOURCE_EXTENSIONS } from "../project/api/index.js";
 
 /**
  * One TypeScript module resolver and exact-result cache per project graph.
@@ -10,19 +19,19 @@ import type { ModuleResolutionSnapshotEntry } from "../project/index.js";
  * for incomplete fixture/compiler configurations.
  */
 export class CachedModuleResolver {
-  readonly #sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
-  readonly #compilerOptions: ts.CompilerOptions;
-  readonly #typescriptCache: ts.ModuleResolutionCache;
-  readonly #results = new Map<string, ModuleResolutionSnapshotEntry>();
+  private readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
+  private readonly compilerOptions: ts.CompilerOptions;
+  private readonly typescriptCache: ts.ModuleResolutionCache;
+  private readonly results = new Map<string, ModuleResolutionSnapshotEntry>();
 
   constructor(
     projectRoot: string,
     sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
     compilerOptions: ts.CompilerOptions,
   ) {
-    this.#sourceFilesByPath = sourceFilesByPath;
-    this.#compilerOptions = compilerOptions;
-    this.#typescriptCache = ts.createModuleResolutionCache(
+    this.sourceFilesByPath = sourceFilesByPath;
+    this.compilerOptions = compilerOptions;
+    this.typescriptCache = ts.createModuleResolutionCache(
       projectRoot,
       canonicalFileName,
       compilerOptions,
@@ -31,12 +40,12 @@ export class CachedModuleResolver {
 
   resolveLocal(fromFile: string, specifier: string): string | null {
     const key = resolutionKey(fromFile, specifier);
-    const cached = this.#results.get(key);
-    if (cached !== undefined) return cached.targetFile;
+    const cached = this.results.get(key);
+    if (cached !== undefined) {return cached.targetFile;}
 
-    const targetFile = this.#resolveWithTypeScript(fromFile, specifier) ??
-      resolveRelativeFallback(fromFile, specifier, this.#sourceFilesByPath);
-    this.#results.set(key, {
+    const targetFile = this.resolveWithTypeScript(fromFile, specifier) ??
+      resolveRelativeFallback(fromFile, specifier, this.sourceFilesByPath);
+    this.results.set(key, {
       fromFile: path.resolve(fromFile),
       specifier,
       targetFile,
@@ -45,21 +54,21 @@ export class CachedModuleResolver {
   }
 
   snapshot(): readonly ModuleResolutionSnapshotEntry[] {
-    return [...this.#results.values()].sort(compareSnapshotEntries);
+    return [...this.results.values()].sort(compareSnapshotEntries);
   }
 
-  #resolveWithTypeScript(fromFile: string, specifier: string): string | null {
+  private resolveWithTypeScript(fromFile: string, specifier: string): string | null {
     const resolution = ts.resolveModuleName(
       specifier,
       fromFile,
-      this.#compilerOptions,
+      this.compilerOptions,
       ts.sys,
-      this.#typescriptCache,
+      this.typescriptCache,
     ).resolvedModule;
-    if (resolution === undefined) return null;
+    if (resolution === undefined) {return null;}
 
     const resolvedFileName = path.resolve(resolution.resolvedFileName);
-    return this.#sourceFilesByPath.has(resolvedFileName) ? resolvedFileName : null;
+    return this.sourceFilesByPath.has(resolvedFileName) ? resolvedFileName : null;
   }
 }
 
@@ -68,7 +77,7 @@ function resolveRelativeFallback(
   specifier: string,
   sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
 ): string | null {
-  if (!specifier.startsWith(".")) return null;
+  if (!specifier.startsWith(".")) {return null;}
 
   const absolute = path.resolve(path.dirname(fromFile), specifier);
   const candidates = [

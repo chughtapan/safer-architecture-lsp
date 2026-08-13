@@ -1,9 +1,16 @@
-// safer-arch-ignore no-large-folder: analyzer children are intentionally one folder per analysis concern and already converge on the single analyzer facade.
+/**
+ * @file Reading and indexing of `safer-arch-ignore` suppression directives.
+ * A directive is one comment line naming a known rule plus a written reason,
+ * and every way it can be wrong becomes a reported parse error rather than a
+ * silently ignored comment, so a waiver never stops working unnoticed.
+ */
 import ts from "typescript";
 import {
   ARCHITECTURE_DIAGNOSTIC_RULE_IDS,
   type ArchitectureDiagnosticRuleId,
 } from "./rule-ids.js";
+
+// safer-arch-ignore no-large-folder: analyzer children are intentionally one folder per analysis concern and already converge on the single analyzer facade.
 
 const DIRECTIVE_MARKER = "safer-arch-ignore";
 // The retired two-line marker. It is NEVER honored — seeing it produces a
@@ -16,9 +23,13 @@ interface ArchitectureDirective {
   readonly reason: string;
 }
 
+/**
+ * The directives one file carries. Suppression is file-scoped, so where in
+ * the file a directive was written is not retained.
+ */
 export interface FileDirectives {
   readonly file: string;
-  readonly directives: ReadonlyArray<ArchitectureDirective>;
+  readonly directives: readonly ArchitectureDirective[];
 }
 
 interface DirectiveParseError {
@@ -28,9 +39,14 @@ interface DirectiveParseError {
   readonly message: string;
 }
 
+/**
+ * Both halves of a file's parse: the directives that will suppress
+ * diagnostics, and the malformed lines that are surfaced to the user instead
+ * of being dropped.
+ */
 export interface DirectiveParseResult {
-  readonly directives: ReadonlyArray<ArchitectureDirective>;
-  readonly errors: ReadonlyArray<DirectiveParseError>;
+  readonly directives: readonly ArchitectureDirective[];
+  readonly errors: readonly DirectiveParseError[];
 }
 
 interface CommentLine {
@@ -43,11 +59,71 @@ interface ParseState {
   readonly errors: DirectiveParseError[];
 }
 
+/**
+ * Read a file's suppression directives out of its comments. Every leading and
+ * trailing comment on every node is inspected, so a directive is honored
+ * wherever the author put it.
+ * @param sourceFile Parsed file whose comment trivia is searched for
+ * directive lines.
+ * @returns The file's valid directives alongside the parse errors that must
+ * be reported to the user.
+ */
 export function parseDirectivesFromSourceFile(
   sourceFile: ts.SourceFile,
 ): DirectiveParseResult {
   const commentLines = collectCommentLines(sourceFile);
   return parseCommentLines(sourceFile.fileName, commentLines);
+}
+
+/**
+ * Project-wide suppression lookup, from resolved file path to rule id to the
+ * reason that was written for it.
+ */
+export type DirectiveIndex = ReadonlyMap<
+  string,
+  ReadonlyMap<ArchitectureDiagnosticRuleId, string>
+>;
+
+/**
+ * Collapse per-file directives into one project-wide lookup. Reasons are
+ * retained per file and rule so the report can surface the auditable waiver
+ * ledger. First directive wins on duplicates.
+ * @param fileDirectives One entry per file that carried at least one
+ * directive, paths already resolved.
+ * @returns The lookup that suppression checks and the waiver ledger both
+ * read.
+ */
+export function buildDirectiveIndex(
+  fileDirectives: readonly FileDirectives[],
+): DirectiveIndex {
+  const index = new Map<string, Map<ArchitectureDiagnosticRuleId, string>>();
+  for (const { file, directives } of fileDirectives) {
+    let byRule = index.get(file);
+    if (!byRule) {
+      byRule = new Map();
+      index.set(file, byRule);
+    }
+    for (const d of directives) {
+      if (!byRule.has(d.ruleId)) {byRule.set(d.ruleId, d.reason);}
+    }
+  }
+  return index;
+}
+
+/**
+ * Decide whether a diagnostic has been waived by its own file.
+ * @param index Project-wide lookup produced by `buildDirectiveIndex`.
+ * @param file Resolved path of the file the diagnostic points at; it must be
+ * resolved the same way the index keys were.
+ * @param ruleId The rule that produced the diagnostic under test.
+ * @returns True when that file wrote a directive for that rule.
+ */
+export function isDirectiveSuppressed(
+  index: DirectiveIndex,
+  file: string,
+  ruleId: ArchitectureDiagnosticRuleId,
+): boolean {
+  return index.get(file)?.has(ruleId) ?? false;
 }
 
 function collectCommentLines(sourceFile: ts.SourceFile): CommentLine[] {
@@ -88,23 +164,6 @@ function commentLinesFromRange(
     : blockCommentLines(raw, comment.pos, lineOf);
 }
 
-function blockCommentPrefixLength(raw: string): number {
-  let cursor = raw.startsWith("/*") ? 2 : 0;
-  while (raw[cursor] === "*") cursor += 1;
-  return cursor;
-}
-
-function blockCommentContentEnd(raw: string): number {
-  let end = raw.endsWith("/") ? raw.length - 1 : raw.length;
-  while (raw[end - 1] === "*") end -= 1;
-  return end;
-}
-
-function stripBlockLinePrefix(segment: string): string {
-  const trimmed = segment.trimStart();
-  return trimmed.startsWith("*") ? trimmed.slice(1).trim() : trimmed.trim();
-}
-
 function blockCommentLines(
   raw: string,
   start: number,
@@ -123,16 +182,33 @@ function blockCommentLines(
   });
 }
 
+function blockCommentPrefixLength(raw: string): number {
+  let cursor = raw.startsWith("/*") ? 2 : 0;
+  while (raw[cursor] === "*") {cursor += 1;}
+  return cursor;
+}
+
+function blockCommentContentEnd(raw: string): number {
+  let end = raw.endsWith("/") ? raw.length - 1 : raw.length;
+  while (raw[end - 1] === "*") {end -= 1;}
+  return end;
+}
+
+function stripBlockLinePrefix(segment: string): string {
+  const trimmed = segment.trimStart();
+  return trimmed.startsWith("*") ? trimmed.slice(1).trim() : trimmed.trim();
+}
+
 // Grammar: `safer-arch-ignore <rule-id>: <reason>` on one comment line.
 // The reason is mandatory and non-empty; suppression is file-scoped.
 const DIRECTIVE_LINE = new RegExp(`^${DIRECTIVE_MARKER}\\s+([\\w-]+)\\s*:\\s*(.*)$`);
 
 function parseCommentLines(
   filePath: string,
-  commentLines: ReadonlyArray<CommentLine>,
+  commentLines: readonly CommentLine[],
 ): DirectiveParseResult {
   const state: ParseState = { directives: [], errors: [] };
-  for (const commentLine of commentLines) handleCommentLine(state, filePath, commentLine);
+  for (const commentLine of commentLines) {handleCommentLine(state, filePath, commentLine);}
   return { directives: state.directives, errors: state.errors };
 }
 
@@ -146,8 +222,8 @@ function handleCommentLine(
     state.errors.push(legacyMarkerError(filePath, line));
     return;
   }
-  if (!content.startsWith(DIRECTIVE_MARKER)) return;
-  const match = content.match(DIRECTIVE_LINE);
+  if (!content.startsWith(DIRECTIVE_MARKER)) {return;}
+  const match = DIRECTIVE_LINE.exec(content);
   if (match === null) {
     state.errors.push(malformedError(filePath, line));
     return;
@@ -157,7 +233,10 @@ function handleCommentLine(
     state.errors.push(unknownRuleError(filePath, line, candidate));
     return;
   }
-  const ruleId = candidate as ArchitectureDiagnosticRuleId;
+  const ruleId =
+    // The guard above rejects any candidate missing from RULE_ID_SET, whose
+    // members are exactly the members of this union, so the cast is safe.
+    candidate as ArchitectureDiagnosticRuleId;
   if (reason.trim().length === 0) {
     state.errors.push(emptyReasonError(filePath, line, ruleId));
     return;
@@ -207,36 +286,4 @@ function emptyReasonError(
     ruleId,
     message: `Empty reason for directive '${DIRECTIVE_MARKER} ${ruleId}: <reason>'. The written reason is mandatory.`,
   };
-}
-
-export type DirectiveIndex = ReadonlyMap<
-  string,
-  ReadonlyMap<ArchitectureDiagnosticRuleId, string>
->;
-
-// Reasons are retained per (file, rule) so the report can surface the
-// auditable waiver ledger. First directive wins on duplicates.
-export function buildDirectiveIndex(
-  fileDirectives: ReadonlyArray<FileDirectives>,
-): DirectiveIndex {
-  const index = new Map<string, Map<ArchitectureDiagnosticRuleId, string>>();
-  for (const { file, directives } of fileDirectives) {
-    let byRule = index.get(file);
-    if (!byRule) {
-      byRule = new Map();
-      index.set(file, byRule);
-    }
-    for (const d of directives) {
-      if (!byRule.has(d.ruleId)) byRule.set(d.ruleId, d.reason);
-    }
-  }
-  return index;
-}
-
-export function isDirectiveSuppressed(
-  index: DirectiveIndex,
-  file: string,
-  ruleId: ArchitectureDiagnosticRuleId,
-): boolean {
-  return index.get(file)?.has(ruleId) ?? false;
 }

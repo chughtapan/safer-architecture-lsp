@@ -1,12 +1,31 @@
+/**
+ * @file Detection of undeclared boundary modules: files that sit between a
+ * band of production callers and a band of implementation files without
+ * being an index or a listed facade. Traffic shape, not naming, decides —
+ * a file the project already treats as an API is one whether or not anyone
+ * said so.
+ */
+
+import type { ProjectArchitectureGraph, SourceModule } from "../imports/index.js";
+import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 import {
   explicitFacadeModule,
   generatedModule,
   resolveImplementationModule,
   resolveProductionModule,
 } from "../project/index.js";
-import type { ProjectArchitectureGraph, SourceModule } from "../imports/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 
+/**
+ * Report every module carrying boundary-shaped traffic that has not been
+ * declared a boundary: enough exported names, enough production files
+ * depending on it, and enough implementation files it depends on.
+ * @param graph Supplies the module list and the incoming edges, which a
+ * module's own record does not carry.
+ * @param options Thresholds for how much traffic counts as a boundary, plus
+ * the facade allowlist that exempts deliberate non-index APIs.
+ * @returns One warning per undeclared boundary module; empty when every
+ * boundary in the project is an index or a listed facade.
+ */
 export function implicitBoundaryModuleDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,
@@ -21,10 +40,10 @@ function implicitBoundaryModuleDiagnostic(
   options: ResolvedArchitectureOptions,
   module: SourceModule,
 ): readonly ArchitectureDiagnostic[] {
-  if (!implicitBoundaryCandidate(module, options)) return [];
+  if (!implicitBoundaryCandidate(module, options)) {return [];}
   const incomingFiles = incomingProductionFiles(graph, module);
   const outgoingFiles = outgoingImplementationFiles(graph, module);
-  if (!implicitBoundaryShape(incomingFiles, outgoingFiles, options)) return [];
+  if (!implicitBoundaryShape(incomingFiles, outgoingFiles, options)) {return [];}
   return [boundaryModuleDiagnostic(module, incomingFiles, outgoingFiles)];
 }
 

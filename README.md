@@ -225,9 +225,17 @@ composition roots for typed configuration builders.
 npm install
 npm run build   # tsc → dist/
 npm test        # vitest: analyzer fixtures, CLI contract, proxy, full LSP session
-npm run test:coverage # c8 ratchet + per-directory floors; counts spawned bins
-npm run lint    # knip
+npm run test:coverage # c8 ratchet + per-directory floors; runs pre-push, not in CI
+npm run lint    # eslint (agent-code-guard policy) + knip
 node dist/server/index.js check .   # the dogfood gate CI enforces
+
+Coverage runs pre-push, not in CI: c8 slows the process-spawning suites enough
+to push the slowest property test past vitest's timeout on CI hardware. `npm
+install` wires the hook up through husky, so there is nothing to install by
+hand. Bypass it with `SKIP_COVERAGE=1 git push`.
+
+husky takes over `core.hooksPath`, so anything already in `.git/hooks/pre-push`
+would stop running; `.husky/pre-push` chains it explicitly.
 ```
 
 Publishing: push a `vX.Y.Z` tag matching `package.json` — the publish

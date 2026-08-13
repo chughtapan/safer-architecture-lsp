@@ -6,17 +6,16 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { uniqueDiagnostics } from "../project/api/index.js";
-import { explicitFolderApiDiagnostics } from "./explicit-api.js";
-import { folderChildLimitDiagnostics } from "./large-folder.js";
+import type { ProjectArchitectureGraph } from "../imports/index.js";
+import { type ArchitectureDiagnostic, type ResolvedArchitectureOptions, uniqueDiagnostics  } from "../project/api/index.js";
 import {
   firstSorted,
   folderChildren,
-  sourceFolderPath,
   type FolderChildren,
+  sourceFolderPath,
 } from "./children/index.js";
-import type { ProjectArchitectureGraph } from "../imports/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
+import { explicitFolderApiDiagnostics } from "./explicit-api.js";
+import { folderChildLimitDiagnostics } from "./large-folder.js";
 
 /**
  * Run every folder-shape architecture check (child-count budget, README
@@ -52,8 +51,8 @@ function folderReadmeRequiredDiagnostic(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
-  if (children.productionChildren.size < options.minFolderReadmeChildren) return [];
-  if (folderHasReadme(graph, children.folder, options)) return [];
+  if (children.productionChildren.size < options.minFolderReadmeChildren) {return [];}
+  if (folderHasReadme(graph, children.folder, options)) {return [];}
   return [missingReadmeDiagnostic(children, graph, options)];
 }
 

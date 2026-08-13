@@ -15,25 +15,28 @@
  *   and exits 2 instead of silently blocking on stdio.
  */
 
-import { createRequire } from "node:module";
-import fs from "node:fs";
-import path from "node:path";
 import { Effect } from "effect";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- the bin reads its config before building the Effect runtime; adding @effect/platform as a runtime dependency for one read would weigh on every consumer.
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
 import {
+  createConnection,
   ProposedFeatures,
   StreamMessageReader,
   StreamMessageWriter,
-  createConnection,
 } from "vscode-languageserver/node.js";
-import { makeLspServer } from "./lsp-server.js";
-import { CONFIG_FILE_NAME } from "./config-loader.js";
 import { WORKSPACE_FILE_NAME } from "../analyzer/workspace/index.js";
+import { CONFIG_FILE_NAME } from "./config-loader.js";
+import { makeLspServer } from "./lsp-server.js";
 import {
   analyzeWorkspaceRoot,
   type WorkspaceArchitectureReport,
 } from "./workspace-report.js";
 
 const PACKAGE_VERSION: string = (
+  // package.json ships inside this package, so the publish pipeline
+  // guarantees `version` is present and the assertion is safe.
   createRequire(import.meta.url)("../../package.json") as { version: string }
 ).version;
 
@@ -57,10 +60,30 @@ DOCS
   https://github.com/chughtapan/safer-architecture-lsp
 `;
 
-function reportFatal(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`[safer-architecture-lsp] fatal: ${message}\n`);
-  process.exit(1);
+function main(): void {
+  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- argv is read once at the process boundary to pick a subcommand; @effect/cli would add a runtime dependency to parse two flags.
+  const [command, ...rest] = process.argv.slice(2);
+  switch (command) {
+    case "serve":
+      serve();
+      return;
+    case "check":
+      check(rest);
+      return;
+    case "--version":
+    case "-v":
+      process.stdout.write(`${PACKAGE_VERSION}\n`);
+      process.exit(0);
+      break;
+    case "--help":
+    case "-h":
+      process.stdout.write(HELP);
+      process.exit(0);
+      break;
+    default:
+      process.stderr.write(HELP);
+      process.exit(2);
+  }
 }
 
 function serve(): void {
@@ -75,50 +98,17 @@ function serve(): void {
   // Effect.scoped owns the workspace engines' watchers + caches; the
   // server Effect completes on the protocol `exit` notification and the
   // scope's finalizers run before the process ends.
-  Effect.runPromise(Effect.scoped(makeLspServer(connection)))
-    .then((code) => process.exit(code))
-    .catch(reportFatal);
+  Effect.runPromise(
+    Effect.scoped(makeLspServer(connection)).pipe(
+      Effect.flatMap((code) => Effect.sync(() => { process.exit(code); })),
+    ),
+  ).catch(reportFatal);
 }
 
-interface CheckFlags {
-  readonly root: string;
-  readonly json: boolean;
-  readonly waivers: boolean;
-}
-
-function parseCheckFlags(args: readonly string[]): CheckFlags | null {
-  let root = process.cwd();
-  let json = false;
-  let waivers = false;
-  let sawRoot = false;
-  for (const arg of args) {
-    if (arg === "--json") json = true;
-    else if (arg === "--waivers") waivers = true;
-    else if (arg.startsWith("--")) return null;
-    else if (!sawRoot) {
-      root = path.resolve(arg);
-      sawRoot = true;
-    } else return null;
-  }
-  return { root, json, waivers };
-}
-
-function printFindings(report: WorkspaceArchitectureReport, root: string): void {
-  for (const d of report.diagnostics) {
-    const rel = path.relative(root, d.file) || d.file;
-    process.stdout.write(`${d.severity} ${d.ruleId} ${rel}: ${d.message}\n`);
-  }
-}
-
-function printWaivers(report: WorkspaceArchitectureReport, root: string): void {
-  if (report.waivers.length === 0) {
-    process.stdout.write("no waivers granted\n");
-    return;
-  }
-  for (const w of report.waivers) {
-    const rel = path.relative(root, w.file) || w.file;
-    process.stdout.write(`waived ${w.ruleId} ${rel}: ${w.reason}\n`);
-  }
+function reportFatal(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`[safer-architecture-lsp] fatal: ${message}\n`);
+  process.exit(1);
 }
 
 function check(args: readonly string[]): void {
@@ -147,7 +137,7 @@ function check(args: readonly string[]): void {
     (d) => d.ruleId === "architecture-analysis-unavailable",
   );
   if (unavailable.length > 0) {
-    for (const d of unavailable) process.stderr.write(`cannot analyze: ${d.message}\n`);
+    for (const d of unavailable) {process.stderr.write(`cannot analyze: ${d.message}\n`);}
     process.exit(2);
   }
 
@@ -179,7 +169,7 @@ function check(args: readonly string[]): void {
     );
   } else {
     printFindings(report, root);
-    if (waivers) printWaivers(report, root);
+    if (waivers) {printWaivers(report, root);}
     const fileCount = report.diagnosticsByFile.size;
     process.stdout.write(
       `safer-architecture check: ${report.diagnostics.length} finding(s) across ${fileCount} file(s), ${report.waivers.length} waiver(s), ${report.projects.length} project(s), options from ${report.projects.length === 1 ? report.projects[0].configSource : "workspace"} — ${root}\n`,
@@ -188,28 +178,44 @@ function check(args: readonly string[]): void {
   process.exit(report.diagnostics.length > 0 ? 1 : 0);
 }
 
-function main(): void {
-  const [command, ...rest] = process.argv.slice(2);
-  switch (command) {
-    case "serve":
-      serve();
-      return;
-    case "check":
-      check(rest);
-      return;
-    case "--version":
-    case "-v":
-      process.stdout.write(`${PACKAGE_VERSION}\n`);
-      process.exit(0);
-      break;
-    case "--help":
-    case "-h":
-      process.stdout.write(HELP);
-      process.exit(0);
-      break;
-    default:
-      process.stderr.write(HELP);
-      process.exit(2);
+interface CheckFlags {
+  readonly root: string;
+  readonly json: boolean;
+  readonly waivers: boolean;
+}
+
+function parseCheckFlags(args: readonly string[]): CheckFlags | null {
+  let root = process.cwd();
+  let json = false;
+  let waivers = false;
+  let sawRoot = false;
+  for (const arg of args) {
+    if (arg === "--json") {json = true;}
+    else if (arg === "--waivers") {waivers = true;}
+    else if (arg.startsWith("--")) {return null;}
+    else if (!sawRoot) {
+      root = path.resolve(arg);
+      sawRoot = true;
+    } else {return null;}
+  }
+  return { root, json, waivers };
+}
+
+function printFindings(report: WorkspaceArchitectureReport, root: string): void {
+  for (const d of report.diagnostics) {
+    const rel = path.relative(root, d.file) || d.file;
+    process.stdout.write(`${d.severity} ${d.ruleId} ${rel}: ${d.message}\n`);
+  }
+}
+
+function printWaivers(report: WorkspaceArchitectureReport, root: string): void {
+  if (report.waivers.length === 0) {
+    process.stdout.write("no waivers granted\n");
+    return;
+  }
+  for (const w of report.waivers) {
+    const rel = path.relative(root, w.file) || w.file;
+    process.stdout.write(`waived ${w.ruleId} ${rel}: ${w.reason}\n`);
   }
 }
 

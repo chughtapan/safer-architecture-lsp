@@ -4,24 +4,29 @@
  * analysis passes consume.
  */
 
+/**
+ * Source-model surface the analysis passes work against: module
+ * classification predicates, path normalization, set comparison, and the
+ * graph types that carry modules and folder edges between passes.
+ */
 export {
   explicitFacadeModule,
+  type ExportConsumer,
   exportedDeclarationName,
+  type ExternalModuleEdge,
+  type FolderEdge,
   generatedModule,
   hasExportModifier,
   isStarExportDeclaration,
   isTestLikePath,
   jaccardOverlap,
-  normalizePath,
-  resolveImplementationModule,
-  resolveProductionModule,
-  unionSets,
-  type ExportConsumer,
-  type ExternalModuleEdge,
-  type FolderEdge,
   type LocalModuleEdge,
   type ModuleEdgeKind,
   type ModuleResolutionSnapshotEntry,
+  normalizePath,
   type ProjectArchitectureGraph,
+  resolveImplementationModule,
+  resolveProductionModule,
   type SourceModule,
+  unionSets,
 } from "./source-model/index.js";

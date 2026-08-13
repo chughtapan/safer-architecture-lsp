@@ -7,26 +7,31 @@
 
 import path from "node:path";
 import ts from "typescript";
-import { collectModuleEdges } from "../edges.js";
-import { CachedModuleResolver } from "../specifier-resolution.js";
-import {
-  collectExportConsumers,
-  collectExportedSymbolNames,
-} from "../module-symbols.js";
-import { collectFolderEdges } from "../folder-edges.js";
+import type { LayerDefinition, PackageJson, ResolvedArchitectureOptions } from "../../project/api/index.js";
 import { publicApiFileNames } from "../../package-api/index.js";
 import {
+  type ExportConsumer,
   hasExportModifier,
   isStarExportDeclaration,
   isTestLikePath,
   normalizePath,
-  type ExportConsumer,
   type ProjectArchitectureGraph,
   type SourceModule,
 } from "../../project/index.js";
 import { withTrailingSeparator } from "../../project/source-paths.js";
-import type { LayerDefinition, PackageJson, ResolvedArchitectureOptions } from "../../project/api/index.js";
+import { collectModuleEdges } from "../edges.js";
+import { collectFolderEdges } from "../folder-edges.js";
+import {
+  collectExportConsumers,
+  collectExportedSymbolNames,
+} from "../module-symbols.js";
+import { CachedModuleResolver } from "../specifier-resolution.js";
 
+/**
+ * Graph vocabulary re-exported at the point of construction, so a consumer of
+ * the builder does not also have to import the project model to name its
+ * result.
+ */
 export type {
   FolderEdge,
   LocalModuleEdge,
@@ -47,6 +52,9 @@ export type {
  * @param options Resolved architecture options.
  * @param reportFile File path used as the diagnostic target when a
  * finding has no natural single file.
+ * @param compilerOptions TypeScript options handed to module resolution so
+ * `paths` aliases and extension rules behave as they do in the real build;
+ * the empty default suits fixture programs with no tsconfig.
  * @returns The fully-populated project architecture graph.
  */
 export function buildProjectGraph(
@@ -78,7 +86,7 @@ export function buildProjectGraph(
   const externalEdges = modules.flatMap((module) => [...module.externalEdges]);
   const exportConsumers = collectExportConsumers(sourceFiles, resolver);
   const publicModules = modules.filter((module) => module.isPublic);
-  const folders = [...new Set(modules.map((module) => module.folder))].sort();
+  const folders = [...new Set(modules.map((module) => module.folder))].sort(compareStrings);
 
   const folderLayerIndex = new Map<string, number | null>(
     folders.map((folder) => [folder, layerIndexFor(folder, options.layers)] as const),
@@ -113,9 +121,9 @@ export function buildProjectGraph(
  */
 function layerIndexFor(
   folder: string,
-  layers: ReadonlyArray<LayerDefinition>,
+  layers: readonly LayerDefinition[],
 ): number | null {
-  if (layers.length === 0) return null;
+  if (layers.length === 0) {return null;}
   const normalized = folder === "." ? "" : normalizePath(folder);
 
   let bestLayer: number | null = null;
@@ -127,7 +135,7 @@ function layerIndexFor(
       const matches =
         normalizedEntry === normalized ||
         (normalizedEntry !== "" && normalized.startsWith(`${normalizedEntry}/`));
-      if (!matches) continue;
+      if (!matches) {continue;}
       if (normalizedEntry.length > bestEntryLength) {
         bestEntryLength = normalizedEntry.length;
         bestLayer = layerIndex;
@@ -136,33 +144,6 @@ function layerIndexFor(
   });
 
   return bestLayer;
-}
-
-/**
- * Canonical folder key for a source file: directory path relative to
- * `src/` (when the file lives under `src/`) or relative to the project
- * root (otherwise). The root folder is encoded as `.`.
- * @param fileName Absolute or relative path to the source file.
- * @param projectRoot Absolute path to the project root.
- * @returns Folder key with forward-slash separators; `.` for root.
- */
-function folderKeyForFile(fileName: string, projectRoot: string): string {
-  const sourceRoot = path.join(projectRoot, "src");
-  const sourceRootWithSlash = withTrailingSeparator(sourceRoot);
-  const resolved = path.resolve(fileName);
-  const base = resolved.startsWith(sourceRootWithSlash) ? sourceRoot : projectRoot;
-  const relativeDirectory = path.relative(base, path.dirname(resolved));
-  return relativeDirectory.length === 0 ? "." : normalizePath(relativeDirectory);
-}
-
-/**
- * Top-level folder segment for a folder key — the first path
- * component, used by layer-direction and shared-kernel checks.
- * @param folder Folder key from `folderKeyForFile`.
- * @returns The first segment of `folder`, or `.` for the root folder.
- */
-function topFolder(folder: string): string {
-  return folder.split("/")[0] ?? ".";
 }
 
 function sourceModuleFromSourceFile(
@@ -193,10 +174,37 @@ function sourceModuleFromSourceFile(
   };
 }
 
+/**
+ * Canonical folder key for a source file: directory path relative to
+ * `src/` (when the file lives under `src/`) or relative to the project
+ * root (otherwise). The root folder is encoded as `.`.
+ * @param fileName Absolute or relative path to the source file.
+ * @param projectRoot Absolute path to the project root.
+ * @returns Folder key with forward-slash separators; `.` for root.
+ */
+function folderKeyForFile(fileName: string, projectRoot: string): string {
+  const sourceRoot = path.join(projectRoot, "src");
+  const sourceRootWithSlash = withTrailingSeparator(sourceRoot);
+  const resolved = path.resolve(fileName);
+  const base = resolved.startsWith(sourceRootWithSlash) ? sourceRoot : projectRoot;
+  const relativeDirectory = path.relative(base, path.dirname(resolved));
+  return relativeDirectory.length === 0 ? "." : normalizePath(relativeDirectory);
+}
+
+/**
+ * Top-level folder segment for a folder key — the first path
+ * component, used by layer-direction and shared-kernel checks.
+ * @param folder Folder key from `folderKeyForFile`.
+ * @returns The first segment of `folder`, or `.` for the root folder.
+ */
+function topFolder(folder: string): string {
+  return folder.split("/")[0] ?? ".";
+}
+
 function countNonImportTopLevelStatements(sourceFile: ts.SourceFile): number {
   return sourceFile.statements.reduce((count, statement) => {
-    if (ts.isImportDeclaration(statement)) return count;
-    if (ts.isImportEqualsDeclaration(statement)) return count;
+    if (ts.isImportDeclaration(statement)) {return count;}
+    if (ts.isImportEqualsDeclaration(statement)) {return count;}
     return count + 1;
   }, 0);
 }
@@ -216,18 +224,24 @@ function consumersByTargetFile(
 function countExportedSymbols(sourceFile: ts.SourceFile): number {
   return sourceFile.statements.reduce((count, statement) => {
     if (ts.isExportDeclaration(statement)) {
-      if (!statement.exportClause) return count + 1;
+      if (!statement.exportClause) {return count + 1;}
       if (ts.isNamedExports(statement.exportClause)) {
         return count + statement.exportClause.elements.length;
       }
       return count + 1;
     }
 
-    if (ts.isExportAssignment(statement)) return count + 1;
-    if (!hasExportModifier(statement)) return count;
+    if (ts.isExportAssignment(statement)) {return count + 1;}
+    if (!hasExportModifier(statement)) {return count;}
     if (ts.isVariableStatement(statement)) {
       return count + statement.declarationList.declarations.length;
     }
     return count + 1;
   }, 0);
+}
+
+// Code-unit order, identical to a bare `sort()` but independent of host locale.
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

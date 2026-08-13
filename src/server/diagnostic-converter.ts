@@ -1,4 +1,3 @@
-// safer-arch-ignore no-trivial-sink-file: the analyzer-to-LSP shape conversion is a deliberate seam; inlining it into lsp-server would couple protocol types into the publish loop.
 /**
  * @file Convert analyzer `ArchitectureDiagnostic` values into LSP
  * `Diagnostic` values for `publishDiagnostics`. Architecture findings
@@ -15,31 +14,12 @@ import {
 import type { ArchitectureDiagnostic } from "../analyzer/project/api/index.js";
 import { ruleCodeDescription } from "./rule-docs.js";
 
+
+// safer-arch-ignore no-trivial-sink-file: the analyzer-to-LSP shape conversion is a deliberate seam; inlining it into lsp-server would couple protocol types into the publish loop.
 const FILE_HEAD_RANGE = {
   start: { line: 0, character: 0 },
   end: { line: 0, character: 1 },
 };
-
-/**
- * Convert one analyzer diagnostic to an LSP diagnostic. The
- * `codeDescription.href` field is the editor-visible "Learn more"
- * URL; it points at the rule's PRINCIPLES.md anchor.
- * @param finding Analyzer's architecture diagnostic.
- * @returns LSP diagnostic, pinned to the start of the file.
- */
-function toLspDiagnostic(finding: ArchitectureDiagnostic): Diagnostic {
-  return {
-    range: FILE_HEAD_RANGE,
-    severity:
-      finding.severity === "error"
-        ? DiagnosticSeverity.Error
-        : DiagnosticSeverity.Warning,
-    code: finding.ruleId,
-    codeDescription: ruleCodeDescription(finding.ruleId),
-    source: "safer-architecture",
-    message: finding.message,
-  };
-}
 
 /**
  * Group analyzer diagnostics by file URI. The LSP server publishes
@@ -69,4 +49,25 @@ export function groupByUri(
     bucket.push(toLspDiagnostic(finding));
   }
   return groups;
+}
+
+/**
+ * Convert one analyzer diagnostic to an LSP diagnostic. The
+ * `codeDescription.href` field is the editor-visible "Learn more"
+ * URL; it points at the rule's heading in docs/rules.md.
+ * @param finding Analyzer's architecture diagnostic.
+ * @returns LSP diagnostic, pinned to the start of the file.
+ */
+function toLspDiagnostic(finding: ArchitectureDiagnostic): Diagnostic {
+  return {
+    range: FILE_HEAD_RANGE,
+    severity:
+      finding.severity === "error"
+        ? DiagnosticSeverity.Error
+        : DiagnosticSeverity.Warning,
+    code: finding.ruleId,
+    codeDescription: ruleCodeDescription(finding.ruleId),
+    source: "safer-architecture",
+    message: finding.message,
+  };
 }

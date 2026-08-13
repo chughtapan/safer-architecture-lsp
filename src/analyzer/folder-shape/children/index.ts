@@ -6,15 +6,15 @@
 
 import path from "node:path";
 import {
+  type ResolvedArchitectureOptions,
+  stripKnownExtension,
+} from "../../project/api/index.js";
+import {
   explicitFacadeModule,
   generatedModule,
   type ProjectArchitectureGraph,
   type SourceModule,
 } from "../../project/index.js";
-import {
-  stripKnownExtension,
-  type ResolvedArchitectureOptions,
-} from "../../project/api/index.js";
 
 interface MutableFolderChildren {
   readonly folder: string;
@@ -54,8 +54,28 @@ export function folderChildren(
   options: ResolvedArchitectureOptions,
 ): readonly FolderChildren[] {
   const byFolder = new Map<string, MutableFolderChildren>();
-  for (const module of graph.modules) addModuleChildren(byFolder, module, options);
+  for (const module of graph.modules) {addModuleChildren(byFolder, module, options);}
   return [...byFolder.values()].sort(compareFolderChildren);
+}
+
+/**
+ * First element of `values` after lexicographic sorting, or `null` if
+ * the set is empty. Used to produce stable, deterministic diagnostics.
+ * @param values Set of strings to sort.
+ * @returns Lexicographically smallest element, or `null` when empty.
+ */
+export function firstSorted(values: ReadonlySet<string>): string | null {
+  return [...values].sort(compareStrings)[0] ?? null;
+}
+
+/**
+ * Convert a folder key from the project graph (relative to `src/`, with
+ * the root encoded as `.`) into its display path under `src/`.
+ * @param folder Folder key as stored on `SourceModule.folder`.
+ * @returns Display path rooted at `src/`.
+ */
+export function sourceFolderPath(folder: string): string {
+  return folder === "." ? "src" : `src/${folder}`;
 }
 
 function addModuleChildren(
@@ -63,10 +83,10 @@ function addModuleChildren(
   module: SourceModule,
   options: ResolvedArchitectureOptions,
 ): void {
-  if (generatedModule(module)) return;
+  if (generatedModule(module)) {return;}
   const folderSegments = module.folder === "." ? [] : module.folder.split("/");
   addAncestorFolderChildren(byFolder, module, folderSegments);
-  if (!explicitFacadeModule(module, options)) addDirectFileChild(byFolder, module);
+  if (!explicitFacadeModule(module, options)) {addDirectFileChild(byFolder, module);}
 }
 
 function addAncestorFolderChildren(
@@ -106,7 +126,7 @@ function mutableFolderChildren(
   folder: string,
 ): MutableFolderChildren {
   const existing = byFolder.get(folder);
-  if (existing) return existing;
+  if (existing) {return existing;}
   const children = {
     folder,
     productionChildren: new Set<string>(),
@@ -137,22 +157,7 @@ function compareFolderChildren(
   return left.folder.localeCompare(right.folder);
 }
 
-/**
- * First element of `values` after lexicographic sorting, or `null` if
- * the set is empty. Used to produce stable, deterministic diagnostics.
- * @param values Set of strings to sort.
- * @returns Lexicographically smallest element, or `null` when empty.
- */
-export function firstSorted(values: ReadonlySet<string>): string | null {
-  return [...values].sort()[0] ?? null;
-}
-
-/**
- * Convert a folder key from the project graph (relative to `src/`, with
- * the root encoded as `.`) into its display path under `src/`.
- * @param folder Folder key as stored on `SourceModule.folder`.
- * @returns Display path rooted at `src/`.
- */
-export function sourceFolderPath(folder: string): string {
-  return folder === "." ? "src" : `src/${folder}`;
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

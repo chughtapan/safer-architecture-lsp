@@ -15,8 +15,19 @@ const ANALYZER_VERSION_PSEUDO_PATH = "__analyzer_version__";
 const PACKAGE_JSON_PSEUDO_PATH_SUFFIX = "/__package_json__";
 const TSCONFIG_PSEUDO_PATH_SUFFIX = "/__tsconfig__";
 
+// Fallback tsconfig lookup: a `tsconfig.json` sibling of the project root.
+const tsconfigSiblingOfRoot: (root: string) => string | undefined = (root) =>
+  path.join(root, "tsconfig.json");
+
+/** One cache-invalidation input: something the report depends on, and its current digest. */
 export interface DependencyWatermark {
+  /**
+   * Key the entry is compared under. Non-file inputs use a pseudo-path
+   * so they can share the source-file watermark list without colliding
+   * with a real path.
+   */
   readonly path: string;
+  /** Digest of the input's current content; changing it invalidates the report. */
   readonly hash: string;
 }
 
@@ -33,8 +44,7 @@ export interface DependencyWatermark {
  */
 export function dependencyWatermarks(
   options: ResolvedArchitectureOptions,
-  findTsconfig: (root: string) => string | undefined = (root) =>
-    path.join(root, "tsconfig.json"),
+  findTsconfig: (root: string) => string | undefined = tsconfigSiblingOfRoot,
 ): readonly DependencyWatermark[] {
   const root = path.resolve(options.projectRoot);
   const tsconfigPath = options.tsconfigPath ?? findTsconfig(root) ?? path.join(root, "tsconfig.json");
@@ -63,11 +73,15 @@ function hashFileOrAbsent(filePath: string): string {
 
 let cachedAnalyzerVersion: string | null = null;
 function getAnalyzerVersion(): string {
-  if (cachedAnalyzerVersion !== null) return cachedAnalyzerVersion;
+  if (cachedAnalyzerVersion !== null) {return cachedAnalyzerVersion;}
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.resolve(here, "..", "..", "..", "..", "package.json");
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as { version?: string };
+    const pkg =
+      // This is the analyzer's own package.json, shipped next to the build,
+      // and a missing `version` falls back below, so reading that one
+      // optional field is safe.
+      JSON.parse(fs.readFileSync(pkgPath, "utf8")) as { version?: string };
     cachedAnalyzerVersion = pkg.version ?? "unknown";
   } catch (error) {
     discardError(error);
@@ -76,6 +90,11 @@ function getAnalyzerVersion(): string {
   return cachedAnalyzerVersion;
 }
 
-function discardError(_captured: unknown): null {
+// Watermark inputs are best-effort: an unreadable package.json or
+// tsconfig degrades to the "absent" digest rather than failing the run.
+// Callers bind the caught error and hand it here, so the overload accepts
+// it and the implementation drops it.
+function discardError(captured: unknown): null;
+function discardError(): null {
   return null;
 }

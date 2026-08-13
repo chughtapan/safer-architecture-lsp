@@ -4,13 +4,12 @@
  * file, fat orchestrator) into a single project-level diagnostic pass.
  */
 
-import { fatOrchestratorDiagnostics } from "./no-fat-orchestrator.js";
-import { implicitBoundaryModuleDiagnostics } from "./implicit-boundary.js";
-import { sharedKernelCohesionDiagnostics } from "./shared-kernel-cohesion.js";
-import { trivialSinkFileDiagnostics } from "./no-trivial-sink-file.js";
-import { uniqueDiagnostics } from "../project/api/index.js";
 import type { ProjectArchitectureGraph } from "../imports/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
+import { type ArchitectureDiagnostic, type ResolvedArchitectureOptions, uniqueDiagnostics  } from "../project/api/index.js";
+import { implicitBoundaryModuleDiagnostics } from "./implicit-boundary.js";
+import { fatOrchestratorDiagnostics } from "./no-fat-orchestrator.js";
+import { trivialSinkFileDiagnostics } from "./no-trivial-sink-file.js";
+import { sharedKernelCohesionDiagnostics } from "./shared-kernel-cohesion.js";
 
 /**
  * Run every module-shape architecture check (implicit boundary,
@@ -29,6 +28,6 @@ export function checkModuleShape(
     ...implicitBoundaryModuleDiagnostics(graph, options),
     ...sharedKernelCohesionDiagnostics(graph, options),
     ...trivialSinkFileDiagnostics(graph, options),
-    ...fatOrchestratorDiagnostics(graph, options),
+    ...fatOrchestratorDiagnostics(graph),
   ]);
 }

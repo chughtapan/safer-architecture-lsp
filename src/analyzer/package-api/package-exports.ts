@@ -1,11 +1,40 @@
-import { collectPackageExportEntries, stripKnownExtension } from "../project/api/index.js";
-import type {
-  ResolvedArchitectureOptions,
-  PackageExportEntry,
-  PackageJson,
-  ArchitectureDiagnostic,
+/**
+ * @file Manifest-level package-API checks. Reads the flattened `exports`
+ * entries and reports public paths that publish internal, wildcard,
+ * test-only, or implementation-shaped targets. Nothing here reads the source
+ * graph, so these checks run from `package.json` alone.
+ */
+
+import {
+  type ArchitectureDiagnostic,
+  collectPackageExportEntries,
+  type PackageExportEntry,
+  type PackageJson, type ResolvedArchitectureOptions, stripKnownExtension
 } from "../project/api/index.js";
 
+const testOnlySegments = [
+  "test",
+  "tests",
+  "testing",
+  "test-utils",
+  "test-support",
+  "fixtures",
+  "__fixtures__",
+  "__tests__",
+];
+
+/**
+ * Run every manifest-level export check and concatenate their diagnostics.
+ * Each entry is judged on its public path and on its target path, so an
+ * innocuous public name over an internal target is still reported.
+ * @param packageJson Manifest whose `exports` (or `main` / `types`) entries
+ * are flattened and judged.
+ * @param options Allow-lists and budgets deciding which path segments count
+ * as internal, implementation-shaped, or over budget.
+ * @param reportFile Path the diagnostics are attributed to, since a manifest
+ * finding has no source position of its own.
+ * @returns Diagnostics from all five checks, in check order.
+ */
 export function checkPackageExports(
   packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
@@ -45,12 +74,12 @@ function internalSubpathDiagnostics(
   reportFile: string,
 ): readonly ArchitectureDiagnostic[] {
   return entries.flatMap((entry) => {
-    if (options.allowedPublicSubpaths.some((s) => s.subpath === entry.publicPath)) return [];
+    if (options.allowedPublicSubpaths.some((s) => s.subpath === entry.publicPath)) {return [];}
 
     const exposesInternalPath =
       pathHasForbiddenSegment(entry.publicPath, options.forbiddenSubpathSegments) ||
       pathHasForbiddenSegment(entry.targetPath, options.forbiddenSubpathSegments);
-    if (!exposesInternalPath) return [];
+    if (!exposesInternalPath) {return [];}
 
     return [
       {
@@ -74,7 +103,7 @@ function subpathBudgetDiagnostics(
   const uniqueSubpaths = new Set(
     entries.map((entry) => entry.publicPath).filter((key) => key !== "."),
   );
-  if (uniqueSubpaths.size <= options.maxSubpathExports) return [];
+  if (uniqueSubpaths.size <= options.maxSubpathExports) {return [];}
 
   return [
     {
@@ -95,7 +124,7 @@ function wildcardExportDiagnostics(
   reportFile: string,
 ): readonly ArchitectureDiagnostic[] {
   const wildcardEntries = entries.filter((entry) => entry.publicPath.includes("*"));
-  if (wildcardEntries.length <= options.maxWildcardExports) return [];
+  if (wildcardEntries.length <= options.maxWildcardExports) {return [];}
 
   return wildcardEntries.map((entry) => ({
     ruleId: "no-internal-subpath-export",
@@ -113,12 +142,12 @@ function testHelperExportDiagnostics(
   reportFile: string,
 ): readonly ArchitectureDiagnostic[] {
   return entries.flatMap((entry) => {
-    if (options.allowedTestPublicSubpaths.some((s) => s.subpath === entry.publicPath)) return [];
+    if (options.allowedTestPublicSubpaths.some((s) => s.subpath === entry.publicPath)) {return [];}
 
     const exposesTestShape =
       pathHasForbiddenSegment(entry.publicPath, testOnlySegments) ||
       pathHasForbiddenSegment(entry.targetPath, testOnlySegments);
-    if (!exposesTestShape) return [];
+    if (!exposesTestShape) {return [];}
 
     return [
       {
@@ -140,12 +169,12 @@ function implementationFilePublicEntryDiagnostics(
   reportFile: string,
 ): readonly ArchitectureDiagnostic[] {
   return entries.flatMap((entry) => {
-    if (options.allowedPublicSubpaths.some((s) => s.subpath === entry.publicPath)) return [];
+    if (options.allowedPublicSubpaths.some((s) => s.subpath === entry.publicPath)) {return [];}
 
     const exposesImplementation =
       pathHasForbiddenSegment(entry.publicPath, options.implementationPathSegments) ||
       pathHasForbiddenSegment(entry.targetPath, options.implementationPathSegments);
-    if (!exposesImplementation) return [];
+    if (!exposesImplementation) {return [];}
 
     return [
       {
@@ -160,14 +189,3 @@ function implementationFilePublicEntryDiagnostics(
     ];
   });
 }
-
-const testOnlySegments = [
-  "test",
-  "tests",
-  "testing",
-  "test-utils",
-  "test-support",
-  "fixtures",
-  "__fixtures__",
-  "__tests__",
-];

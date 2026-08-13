@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.3.1 (2026-08-12)
+
+- Adopt Agent Code Guard 0.0.21's `recommended` ESLint policy as a blocking
+  quality gate. `npm run lint` now runs ESLint and Knip, and CI enforces it.
+- Add a type-aware flat config that lints src, tests, and root config files.
+  `tsconfig.test.json` brings tests into a program for the first time, which
+  surfaced and fixed five type errors in tests/graph.test.ts that were
+  invisible while tests sat outside every tsconfig.
+- Document every exported declaration and add a canonical `@file` overview to
+  each linted module.
+- Replace JavaScript private fields with the TypeScript `private` modifier,
+  give every `.sort()` an explicit comparator that reproduces lexicographic
+  order without locale dependence, and order declarations callers-first.
+- Migrate the server and proxy binaries to `Effect.Effect<undefined>` and
+  convert their remaining raw promise surfaces to Effect, including a typed
+  `BackendWriteError`. No public API changed: the package exports a single
+  entry that re-exports only the analyzer.
+- Add property cases where tests previously asserted a single example: 77
+  named tests to 87, none removed. Coverage rises to 78.27% lines.
+- Move the coverage gate from CI to a husky pre-push hook (`.husky/pre-push`,
+  running `scripts/pre-push.sh`), so it installs with `npm install` rather than
+  by hand. The hook chains `.git/hooks/pre-push` explicitly, because husky takes
+  over `core.hooksPath` and would otherwise silently disable a hook already
+  installed there.
+  c8 instrumentation slows the process-spawning suites by roughly an order of
+  magnitude, which pushed the slowest property test past vitest's 30s timeout
+  on CI hardware. CI runs the uninstrumented suite, the test typecheck, lint,
+  and the dogfood self-check.
+
 ## 0.3.0 (2026-08-12)
 
 - Cache external-package type walks across public entrypoints, fixing the
@@ -11,7 +40,7 @@
   98.1%, `package-cycles.ts` 100%).
 - Add a global production-source coverage ratchet (74% lines/statements, 72%
   branches) in `.c8rc.json` plus per-directory floors in
-  `scripts/coverage-gate.mjs`, both enforced by CI; subsequent passes will
+  `scripts/coverage-gate.mjs`, enforced by the pre-push hook; subsequent passes will
   continue raising them toward 100%. The thresholds measure the whole shipped
   surface, so they are not comparable to a provider that sees only in-process
   code. Function coverage is reported but not gated: c8 undercounts function
