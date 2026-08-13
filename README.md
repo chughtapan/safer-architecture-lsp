@@ -225,7 +225,7 @@ composition roots for typed configuration builders.
 npm install
 npm run build   # tsc → dist/
 npm test        # vitest: analyzer fixtures, CLI contract, proxy, full LSP session
-npm run test:coverage # the production-source coverage ratchet
+npm run test:coverage # c8 ratchet + per-directory floors; counts spawned bins
 npm run lint    # knip
 node dist/server/index.js check .   # the dogfood gate CI enforces
 ```
