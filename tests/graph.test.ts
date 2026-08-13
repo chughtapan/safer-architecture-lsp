@@ -13,7 +13,7 @@ interface TestEdge {
 }
 
 it("canonicalizes nodes and edges before graph traversal", () => {
-  const graph = makeDirectedGraph(
+  const graph = makeDirectedGraph<string, TestEdge>(
     ["c", "a"],
     [
       { from: "c", to: "a", label: "third" },
@@ -33,7 +33,7 @@ it("finds deterministic SCCs, isolated nodes, and self loops", () => {
     { from: "a", to: "b", label: "ab" },
     { from: "d", to: "d", label: "dd" },
   ];
-  const graph = makeDirectedGraph(["e"], edges);
+  const graph = makeDirectedGraph<string, TestEdge>(["e"], edges);
 
   expect(stronglyConnectedComponents(graph)).toEqual([
     ["a", "b", "c"],
