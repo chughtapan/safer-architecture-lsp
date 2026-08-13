@@ -19,19 +19,19 @@ import { candidateFileNames, SOURCE_EXTENSIONS } from "../project/api/index.js";
  * for incomplete fixture/compiler configurations.
  */
 export class CachedModuleResolver {
-  readonly #sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
-  readonly #compilerOptions: ts.CompilerOptions;
-  readonly #typescriptCache: ts.ModuleResolutionCache;
-  readonly #results = new Map<string, ModuleResolutionSnapshotEntry>();
+  private readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
+  private readonly compilerOptions: ts.CompilerOptions;
+  private readonly typescriptCache: ts.ModuleResolutionCache;
+  private readonly results = new Map<string, ModuleResolutionSnapshotEntry>();
 
   constructor(
     projectRoot: string,
     sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
     compilerOptions: ts.CompilerOptions,
   ) {
-    this.#sourceFilesByPath = sourceFilesByPath;
-    this.#compilerOptions = compilerOptions;
-    this.#typescriptCache = ts.createModuleResolutionCache(
+    this.sourceFilesByPath = sourceFilesByPath;
+    this.compilerOptions = compilerOptions;
+    this.typescriptCache = ts.createModuleResolutionCache(
       projectRoot,
       canonicalFileName,
       compilerOptions,
@@ -40,12 +40,12 @@ export class CachedModuleResolver {
 
   resolveLocal(fromFile: string, specifier: string): string | null {
     const key = resolutionKey(fromFile, specifier);
-    const cached = this.#results.get(key);
+    const cached = this.results.get(key);
     if (cached !== undefined) {return cached.targetFile;}
 
-    const targetFile = this.#resolveWithTypeScript(fromFile, specifier) ??
-      resolveRelativeFallback(fromFile, specifier, this.#sourceFilesByPath);
-    this.#results.set(key, {
+    const targetFile = this.resolveWithTypeScript(fromFile, specifier) ??
+      resolveRelativeFallback(fromFile, specifier, this.sourceFilesByPath);
+    this.results.set(key, {
       fromFile: path.resolve(fromFile),
       specifier,
       targetFile,
@@ -54,21 +54,21 @@ export class CachedModuleResolver {
   }
 
   snapshot(): readonly ModuleResolutionSnapshotEntry[] {
-    return [...this.#results.values()].sort(compareSnapshotEntries);
+    return [...this.results.values()].sort(compareSnapshotEntries);
   }
 
-  #resolveWithTypeScript(fromFile: string, specifier: string): string | null {
+  private resolveWithTypeScript(fromFile: string, specifier: string): string | null {
     const resolution = ts.resolveModuleName(
       specifier,
       fromFile,
-      this.#compilerOptions,
+      this.compilerOptions,
       ts.sys,
-      this.#typescriptCache,
+      this.typescriptCache,
     ).resolvedModule;
     if (resolution === undefined) {return null;}
 
     const resolvedFileName = path.resolve(resolution.resolvedFileName);
-    return this.#sourceFilesByPath.has(resolvedFileName) ? resolvedFileName : null;
+    return this.sourceFilesByPath.has(resolvedFileName) ? resolvedFileName : null;
   }
 }
 

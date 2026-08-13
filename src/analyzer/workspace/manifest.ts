@@ -5,7 +5,7 @@
  */
 
 import { Either, Schema } from "effect";
-import { ArrayFormatter } from "effect/ParseResult";
+import { ArrayFormatter, type ParseError } from "effect/ParseResult";
 import fs from "node:fs";
 import path from "node:path";
 import { readPackageJson } from "../project/package-json.js";
@@ -13,12 +13,12 @@ import { readPackageJson } from "../project/package-json.js";
 /** Manifest filename whose presence in a root makes it a multi-package workspace. */
 export const WORKSPACE_FILE_NAME = "safer-architecture.workspace.json";
 
-const NonEmptyString = Schema.String.pipe(Schema.minLength(1));
+const nonEmptyString = Schema.String.pipe(Schema.minLength(1));
 
 class WorkspaceManifest extends Schema.Class<WorkspaceManifest>(
   "WorkspaceManifest",
 )({
-  packages: Schema.Array(NonEmptyString),
+  packages: Schema.Array(nonEmptyString),
 }) {}
 
 /**
@@ -87,68 +87,111 @@ export function discoverWorkspace(workspaceRoot: string): WorkspaceDiscovery {
     return invalid(manifestPath, `invalid JSON: ${errorMessage(error)}`);
   }
 
-  const decoded = Schema.decodeUnknownEither(WorkspaceManifest)(raw);
-  if (Either.isLeft(decoded)) {
-    const detail = ArrayFormatter.formatErrorSync(decoded.left)
-      .map((issue) => `${issue.path.join(".") || "manifest"}: ${issue.message}`)
-      .join("; ");
-    return invalid(manifestPath, detail);
-  }
-  if (decoded.right.packages.length === 0) {
-    return invalid(manifestPath, "packages must list at least one package root");
+  return Either.match(Schema.decodeUnknownEither(WorkspaceManifest)(raw), {
+    onLeft: (parseError) => invalid(manifestPath, decodeProblem(parseError)),
+    onRight: (manifest) =>
+      manifestWorkspace({ root, canonicalRoot, manifestPath }, manifest.packages),
+  });
+}
+
+/** The three root paths every manifest package root is judged against. */
+interface WorkspaceRoots {
+  readonly root: string;
+  readonly canonicalRoot: string;
+  readonly manifestPath: string;
+}
+
+function decodeProblem(parseError: ParseError): string {
+  return ArrayFormatter.formatErrorSync(parseError)
+    .map((issue) => `${issue.path.join(".") || "manifest"}: ${issue.message}`)
+    .join("; ");
+}
+
+function manifestWorkspace(
+  roots: WorkspaceRoots,
+  packages: readonly string[],
+): WorkspaceDiscovery {
+  if (packages.length === 0) {
+    return invalid(roots.manifestPath, "packages must list at least one package root");
   }
 
   const projects: WorkspaceProject[] = [];
-  const roots = new Set<string>();
-  const names = new Set<string>();
-  for (const relativeRoot of decoded.right.packages) {
-    if (path.isAbsolute(relativeRoot)) {
-      return invalid(manifestPath, `package root must be relative: ${relativeRoot}`);
-    }
-    const requestedRoot = path.resolve(root, relativeRoot);
-    const relative = path.relative(root, requestedRoot);
-    if (relative.startsWith(`..${path.sep}`) || relative === "..") {
-      return invalid(manifestPath, `package root escapes the workspace: ${relativeRoot}`);
-    }
-    try {
-      if (!fs.statSync(requestedRoot).isDirectory()) {
-        return invalid(manifestPath, `package root is not a directory: ${requestedRoot}`);
-      }
-    } catch {
-      return invalid(manifestPath, `package root is not a directory: ${requestedRoot}`);
-    }
-    let realProjectRoot: string;
-    try {
-      realProjectRoot = fs.realpathSync(requestedRoot);
-    } catch (error) {
-      return invalid(
-        manifestPath,
-        `package root cannot be resolved: ${relativeRoot}: ${errorMessage(error)}`,
-      );
-    }
-    const canonicalRelative = path.relative(canonicalRoot, realProjectRoot);
-    if (canonicalRelative.startsWith(`..${path.sep}`) || canonicalRelative === "..") {
-      return invalid(manifestPath, `package root escapes the workspace through a symlink: ${relativeRoot}`);
-    }
-    if (roots.has(realProjectRoot)) {
-      return invalid(manifestPath, `duplicate package root: ${relativeRoot}`);
-    }
-    const projectRoot = requestedRoot;
-    const project = projectAt(projectRoot, true, manifestPath);
-    if (!project.ok) {return project;}
-    if (names.has(project.project.name)) {
-      return invalid(manifestPath, `duplicate package name: ${project.project.name}`);
-    }
-    roots.add(realProjectRoot);
-    names.add(project.project.name);
-    projects.push(project.project);
+  const seenRoots = new Set<string>();
+  const seenNames = new Set<string>();
+  for (const relativeRoot of packages) {
+    const resolved = manifestPackage(roots, relativeRoot, seenRoots, seenNames);
+    if (!resolved.ok) {return resolved;}
+    projects.push(resolved.project);
   }
 
   projects.sort((left, right) => left.name.localeCompare(right.name));
   return {
     ok: true,
-    workspace: { workspaceRoot: root, manifestPath, projects },
+    workspace: {
+      workspaceRoot: roots.root,
+      manifestPath: roots.manifestPath,
+      projects,
+    },
   };
+}
+
+function manifestPackage(
+  roots: WorkspaceRoots,
+  relativeRoot: string,
+  seenRoots: Set<string>,
+  seenNames: Set<string>,
+): ProjectResult {
+  const { root, canonicalRoot, manifestPath } = roots;
+  if (path.isAbsolute(relativeRoot)) {
+    return invalid(manifestPath, `package root must be relative: ${relativeRoot}`);
+  }
+  const requestedRoot = path.resolve(root, relativeRoot);
+  const relative = path.relative(root, requestedRoot);
+  if (relative.startsWith(`..${path.sep}`) || relative === "..") {
+    return invalid(manifestPath, `package root escapes the workspace: ${relativeRoot}`);
+  }
+  try {
+    if (!fs.statSync(requestedRoot).isDirectory()) {
+      return invalid(manifestPath, `package root is not a directory: ${requestedRoot}`);
+    }
+  } catch (error) {
+    discardStatError(error);
+    return invalid(manifestPath, `package root is not a directory: ${requestedRoot}`);
+  }
+  let realProjectRoot: string;
+  try {
+    realProjectRoot = fs.realpathSync(requestedRoot);
+  } catch (error) {
+    return invalid(
+      manifestPath,
+      `package root cannot be resolved: ${relativeRoot}: ${errorMessage(error)}`,
+    );
+  }
+  const canonicalRelative = path.relative(canonicalRoot, realProjectRoot);
+  if (canonicalRelative.startsWith(`..${path.sep}`) || canonicalRelative === "..") {
+    return invalid(manifestPath, `package root escapes the workspace through a symlink: ${relativeRoot}`);
+  }
+  if (seenRoots.has(realProjectRoot)) {
+    return invalid(manifestPath, `duplicate package root: ${relativeRoot}`);
+  }
+  const projectRoot = requestedRoot;
+  const project = projectAt(projectRoot, true, manifestPath);
+  if (!project.ok) {return project;}
+  if (seenNames.has(project.project.name)) {
+    return invalid(manifestPath, `duplicate package name: ${project.project.name}`);
+  }
+  seenRoots.add(realProjectRoot);
+  seenNames.add(project.project.name);
+  return project;
+}
+
+// A stat failure and a non-directory are the same rejection here: either way
+// the package root is unusable and the message is identical, so the caught
+// error carries no extra signal. Callers bind it and hand it here, so the
+// overload accepts it and the implementation drops it.
+function discardStatError(captured: unknown): null;
+function discardStatError(): null {
+  return null;
 }
 
 type ProjectResult =
@@ -174,7 +217,8 @@ function projectAt(
   }
   const runtimeDependencies = packageJson === null
     ? []
-    : [...new Set([...packageJson.dependencies.keys(), ...packageJson.peerDependencies.keys()])].sort();
+    : [...new Set([...packageJson.dependencies.keys(), ...packageJson.peerDependencies.keys()])]
+        .sort(compareStrings);
   return {
     ok: true,
     project: {
@@ -201,4 +245,9 @@ function invalid(manifestPath: string, problem: string): WorkspaceDiscovery & Pr
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

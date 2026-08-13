@@ -41,7 +41,10 @@ export function workspacePackageCycleDiagnostics(
   const graph = makeDirectedGraph([...byName.keys()], edges);
   return cyclicStronglyConnectedComponents(graph).map((component) => {
     const cycle = canonicalCyclePath(graph, component);
-    const anchor = byName.get(component[0]) as WorkspaceProject;
+    const anchor =
+      // Every graph node comes from `byName` and a cycle component is a
+      // non-empty subset of those nodes, so the lookup is known to hit.
+      byName.get(component[0]) as WorkspaceProject;
     return {
       ruleId: "no-workspace-package-cycle",
       file: anchor.packageJsonPath,

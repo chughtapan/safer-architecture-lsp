@@ -15,6 +15,12 @@ import { ruleCodeDescription } from "../src/server/rule-docs.js";
 import { makeWorkspaceRegistry } from "../src/server/workspace-registry.js";
 import { makeFixture } from "./support/fixtures.js";
 
+/**
+ * How many `register` calls race for the same root. All of them are in
+ * flight at once, which is what makes a second engine build observable.
+ */
+const CONCURRENT_REGISTRATIONS = 4;
+
 it.effect("stores, updates, lists, and closes open documents", () =>
   Effect.gen(function* () {
     const store = yield* makeDocumentStore();
@@ -60,8 +66,8 @@ it.effect("registers each workspace once and releases it on unregister", () =>
       );
       const registry = yield* makeWorkspaceRegistry();
       const registrations = yield* Effect.all(
-        Array.from({ length: 4 }, () => registry.register(fixture.root)),
-        { concurrency: "unbounded" },
+        Array.from({ length: CONCURRENT_REGISTRATIONS }, () => registry.register(fixture.root)),
+        { concurrency: CONCURRENT_REGISTRATIONS },
       );
       const first = registrations[0];
       assert.isDefined(first);

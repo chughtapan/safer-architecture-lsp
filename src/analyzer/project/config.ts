@@ -10,7 +10,10 @@ import { ArrayFormatter } from "effect/ParseResult";
 import path from "node:path";
 import {
   type ArchitectureOptions,
+  type CompositionRoot,
   decodeArchitectureOptions,
+  type DomainDefinition,
+  type DomainOwnership,
 } from "./config-schema.js";
 
 // Memoize the schema decode on the raw input reference. ESLint hands the
@@ -79,41 +82,65 @@ function decodeOrThrow(raw: unknown): ArchitectureOptions {
 }
 
 function validateDomainConfiguration(options: ArchitectureOptions): void {
+  const names = validateDomainDefinitions(options.domains);
+  validateDomainOwnershipPaths(options.domainOwnership, names);
+  validateCompositionRootPaths(options.compositionRoots);
+  if (options.domains.length === 0 &&
+      (options.domainOwnership.length > 0 || options.compositionRoots.length > 0)) {
+    domainConfigurationError("domainOwnership and compositionRoots require at least one domain");
+  }
+}
+
+function validateDomainDefinitions(domains: readonly DomainDefinition[]): ReadonlySet<string> {
   const names = new Set<string>();
   const roots = new Map<string, string>();
-  const ownershipPaths = new Map<string, string>();
-  const compositionPaths = new Set<string>();
-  for (const domain of options.domains) {
+  for (const domain of domains) {
     if (names.has(domain.name)) {domainConfigurationError(`duplicate domain name '${domain.name}'`);}
     names.add(domain.name);
-    for (const root of domain.roots) {
-      const normalized = validateRelativeArchitecturePath(root, `domain '${domain.name}' root`);
-      const existing = roots.get(normalized);
-      if (existing !== undefined) {
-        domainConfigurationError(`domain root '${root}' is owned by both '${existing}' and '${domain.name}'`);
-      }
-      roots.set(normalized, domain.name);
+    validateDomainRoots(domain, roots);
+    validateDomainEntrypoints(domain);
+  }
+  return names;
+}
+
+function validateDomainRoots(domain: DomainDefinition, roots: Map<string, string>): void {
+  for (const root of domain.roots) {
+    const normalized = validateRelativeArchitecturePath(root, `domain '${domain.name}' root`);
+    const existing = roots.get(normalized);
+    if (existing !== undefined) {
+      domainConfigurationError(`domain root '${root}' is owned by both '${existing}' and '${domain.name}'`);
     }
-    const entrypoints = new Set<string>();
-    for (const entrypoint of domain.entrypoints) {
-      const normalized = validateRelativeArchitecturePath(
-        entrypoint,
-        `domain '${domain.name}' entrypoint`,
+    roots.set(normalized, domain.name);
+  }
+}
+
+function validateDomainEntrypoints(domain: DomainDefinition): void {
+  const entrypoints = new Set<string>();
+  for (const entrypoint of domain.entrypoints) {
+    const normalized = validateRelativeArchitecturePath(
+      entrypoint,
+      `domain '${domain.name}' entrypoint`,
+    );
+    if (entrypoints.has(normalized)) {
+      domainConfigurationError(
+        `domain '${domain.name}' has duplicate entrypoint '${entrypoint}'`,
       );
-      if (entrypoints.has(normalized)) {
-        domainConfigurationError(
-          `domain '${domain.name}' has duplicate entrypoint '${entrypoint}'`,
-        );
-      }
-      entrypoints.add(normalized);
-      if (!domain.roots.some((root) => pathContains(normalizeConfigPath(root), normalized))) {
-        domainConfigurationError(
-          `domain '${domain.name}' entrypoint '${entrypoint}' is outside its configured roots`,
-        );
-      }
+    }
+    entrypoints.add(normalized);
+    if (!domain.roots.some((root) => pathContains(normalizeConfigPath(root), normalized))) {
+      domainConfigurationError(
+        `domain '${domain.name}' entrypoint '${entrypoint}' is outside its configured roots`,
+      );
     }
   }
-  for (const ownership of options.domainOwnership) {
+}
+
+function validateDomainOwnershipPaths(
+  domainOwnership: readonly DomainOwnership[],
+  names: ReadonlySet<string>,
+): void {
+  const ownershipPaths = new Map<string, string>();
+  for (const ownership of domainOwnership) {
     const normalized = validateRelativeArchitecturePath(ownership.path, "domain ownership path");
     if (!names.has(ownership.domain)) {
       domainConfigurationError(
@@ -128,16 +155,16 @@ function validateDomainConfiguration(options: ArchitectureOptions): void {
     }
     ownershipPaths.set(normalized, ownership.domain);
   }
-  for (const composition of options.compositionRoots) {
+}
+
+function validateCompositionRootPaths(compositionRoots: readonly CompositionRoot[]): void {
+  const compositionPaths = new Set<string>();
+  for (const composition of compositionRoots) {
     const normalized = validateRelativeArchitecturePath(composition.path, "composition root");
     if (compositionPaths.has(normalized)) {
       domainConfigurationError(`duplicate composition root '${composition.path}'`);
     }
     compositionPaths.add(normalized);
-  }
-  if (options.domains.length === 0 &&
-      (options.domainOwnership.length > 0 || options.compositionRoots.length > 0)) {
-    domainConfigurationError("domainOwnership and compositionRoots require at least one domain");
   }
 }
 

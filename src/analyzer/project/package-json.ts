@@ -25,7 +25,10 @@ export function readPackageJson(projectRoot: string): PackageJson | null {
   const packageJsonPath = path.join(projectRoot, "package.json");
   if (!fs.existsSync(packageJsonPath)) {return null;}
 
-  const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as unknown;
+  const parsed =
+    // `JSON.parse` is typed `any`; widening its result to `unknown` is safe
+    // because every field below is read through a validating accessor.
+    JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as unknown;
   if (!isJsonObject(parsed)) {return null;}
 
   return {

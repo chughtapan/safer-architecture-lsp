@@ -144,7 +144,12 @@ function compareFolderChildren(
  * @returns Lexicographically smallest element, or `null` when empty.
  */
 export function firstSorted(values: ReadonlySet<string>): string | null {
-  return [...values].sort()[0] ?? null;
+  return [...values].sort(compareStrings)[0] ?? null;
+}
+
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }
 
 /**

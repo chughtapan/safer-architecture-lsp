@@ -141,7 +141,7 @@ function externalModuleEdge(
 }
 
 function importDeclarationIsTypeOnly(statement: ts.ImportDeclaration): boolean {
-  if (statement.importClause?.isTypeOnly) {return true;}
+  if (statement.importClause?.phaseModifier === ts.SyntaxKind.TypeKeyword) {return true;}
   const namedBindings = statement.importClause?.namedBindings;
   return Boolean(
     namedBindings &&

@@ -25,7 +25,11 @@ Options:
 `;
 
 function packageVersion(): string {
-  return (createRequire(import.meta.url)("../../package.json") as { version: string }).version;
+  return (
+    // Safe: the required path is this package's own manifest, whose `version`
+    // npm guarantees to be a string.
+    createRequire(import.meta.url)("../../package.json") as { version: string }
+  ).version;
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -73,7 +77,7 @@ async function main(argv: string[]): Promise<number> {
 
 main(process.argv)
   .then((code) => process.exit(code))
-  .catch((error) => {
+  .catch((error: unknown) => {
     log(error instanceof Error ? error.message : String(error));
     process.exit(1);
   });

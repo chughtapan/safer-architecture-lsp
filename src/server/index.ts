@@ -34,6 +34,8 @@ import {
 } from "./workspace-report.js";
 
 const PACKAGE_VERSION: string = (
+  // package.json ships inside this package, so the publish pipeline
+  // guarantees `version` is present and the assertion is safe.
   createRequire(import.meta.url)("../../package.json") as { version: string }
 ).version;
 
@@ -75,9 +77,11 @@ function serve(): void {
   // Effect.scoped owns the workspace engines' watchers + caches; the
   // server Effect completes on the protocol `exit` notification and the
   // scope's finalizers run before the process ends.
-  Effect.runPromise(Effect.scoped(makeLspServer(connection)))
-    .then((code) => process.exit(code))
-    .catch(reportFatal);
+  Effect.runPromise(
+    Effect.scoped(makeLspServer(connection)).pipe(
+      Effect.flatMap((code) => Effect.sync(() => { process.exit(code); })),
+    ),
+  ).catch(reportFatal);
 }
 
 interface CheckFlags {

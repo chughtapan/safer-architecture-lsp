@@ -19,19 +19,22 @@ interface EngineEntry {
 type EngineMap = ReadonlyMap<string, EngineEntry>;
 
 function insertEntry(
-  map: EngineMap,
   projectRoot: string,
   entry: EngineEntry,
-): EngineMap {
-  const next = new Map(map);
-  next.set(projectRoot, entry);
-  return next;
+): (map: EngineMap) => EngineMap {
+  return (map) => {
+    const next = new Map(map);
+    next.set(projectRoot, entry);
+    return next;
+  };
 }
 
-function removeEntry(map: EngineMap, projectRoot: string): EngineMap {
-  const next = new Map(map);
-  next.delete(projectRoot);
-  return next;
+function removeEntry(projectRoot: string): (map: EngineMap) => EngineMap {
+  return (map) => {
+    const next = new Map(map);
+    next.delete(projectRoot);
+    return next;
+  };
 }
 
 /**
@@ -87,7 +90,7 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
         const engine = yield* makeWorkspaceEngine(resolved).pipe(
           Scope.extend(child),
         );
-        yield* Ref.update(ref, (m) => insertEntry(m, projectRoot, { engine, scope: child }));
+        yield* Ref.update(ref, insertEntry(projectRoot, { engine, scope: child }));
         return engine;
       }));
 
@@ -96,7 +99,7 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
         const map = yield* Ref.get(ref);
         const entry = map.get(projectRoot);
         if (entry === undefined) {return;}
-        yield* Ref.update(ref, (m) => removeEntry(m, projectRoot));
+        yield* Ref.update(ref, removeEntry(projectRoot));
         yield* Scope.close(entry.scope, Exit.void);
       }));
 
@@ -109,4 +112,4 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
       Effect.map(Ref.get(ref), (map) => [...map.keys()]);
 
     return { register, unregister, findByProjectRoot, listProjectRoots };
-  });
+  }).pipe(Effect.withSpan("makeWorkspaceRegistry"));

@@ -96,7 +96,7 @@ function productionConsumerSets(
   for (const consumer of graph.exportConsumersByFileName.get(module.fileName) ?? []) {
     addProductionExportConsumer(consumersByExport, graph, consumer);
   }
-  const consumedExports = [...consumersByExport.keys()].sort();
+  const consumedExports = [...consumersByExport.keys()].sort(compareStrings);
   return {
     consumedExports,
     consumersByExport,
@@ -188,4 +188,9 @@ function lowCohesionDiagnostic(
       `${overlap.comparisonCount} pairs). ${overlap.samples.join(", ")} are ` +
       "used by mostly different modules. Split cohesive helper modules or expose a small facade.",
   };
+}
+
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

@@ -1,29 +1,51 @@
 /**
  * @file Protocol tests for the stdio LSP multiplexer. Framing and config
- * parsing are unit-tested against the built modules; routing, capability
- * merge, fanout, crash isolation, and sidecar backpressure are tested by
- * spawning the real `safer-lsp-proxy` bin with tiny `node -e` fake
- * backends — the same integration shape the Python suite used.
+ * parsing are unit-tested against the built modules — by example and by
+ * property — while routing, capability merge, fanout, crash isolation, and
+ * sidecar backpressure are tested by spawning the real `safer-lsp-proxy` bin
+ * with tiny `node -e` fake backends — the same integration shape the Python
+ * suite used.
  */
 
+import { Data, Effect, FastCheck as fc } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseBackendSpecs } from "../src/proxy/config.js";
 import { encodePacket, FrameDecoder, type Message } from "../src/proxy/framing.js";
+import { makeTempFile } from "./support/fixtures.js";
 
 const PACKAGE_VERSION: string = (
+  // package.json is the package's own manifest, so its `version` field is
+  // guaranteed present whenever this test file resolves.
   createRequire(import.meta.url)("../package.json") as { version: string }
 ).version;
+
+/** Exit code the fake primary uses when it crashes, and the proxy must mirror. */
+const PRIMARY_CRASH_EXIT_CODE = 17;
+
+/** Exit code a proxy that saw `exit` after a clean run must report. */
+const CLEAN_EXIT_CODE = 0;
+
+const DEFAULT_MESSAGE_TIMEOUT_MS = 4000;
+const COLLECT_LIMIT = 40;
+const INTEGRATION_TIMEOUT_MS = 20_000;
+
+/** Both backends answer, so a merged publish carries one diagnostic each. */
+const MERGED_DIAGNOSTIC_COUNT = 2;
+const SURVIVING_DIAGNOSTIC_COUNT = 1;
+const BACKEND_COUNT = 2;
+
+/** Volume that must overrun the sidecar's write buffer without stalling. */
+const FLOOD_CHUNK_BYTES = 256 * 1024;
+const FLOOD_MESSAGE_COUNT = 48;
 
 // A fake language server driven entirely off stdin frames. Role "primary"
 // answers hover and advertises hoverProvider; "sidecar" publishes
 // diagnostics and workspace-folder support; "slowreader" answers
 // initialize then stops reading so its stdin backs up. A didOpen for a
-// `crash-<role>` URI makes that role exit (17 for primary, 0 otherwise).
+// `crash-<role>` URI makes that role exit (PRIMARY_CRASH_EXIT_CODE for
+// primary, 0 otherwise).
 const FAKE_BACKEND = String.raw`
 const role = process.argv[1] || "primary";
 let buf = Buffer.alloc(0);
@@ -45,7 +67,7 @@ function handle(msg) {
     send({ jsonrpc: "2.0", id: 7, method: "workspace/configuration", params: { items: [{ section: role }] } });
   } else if (method === "textDocument/didOpen") {
     const uri = msg.params.textDocument.uri;
-    if (uri.indexOf("crash-" + role) !== -1) { process.exit(role === "primary" ? 17 : 0); }
+    if (uri.indexOf("crash-" + role) !== -1) { process.exit(role === "primary" ? ${PRIMARY_CRASH_EXIT_CODE} : 0); }
     send({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: { uri, diagnostics: [{ message: role }] } });
   } else if (method === "textDocument/didChange") {
     // volume-only; no reply
@@ -87,6 +109,22 @@ process.stdin.on("data", (chunk) => {
 process.stdin.on("end", () => process.exit(0));
 `;
 
+/** No message arrived from the proxy before the wait window elapsed. */
+class MessageTimeout extends Data.TaggedError("MessageTimeout")<{
+  readonly timeoutMs: number;
+  readonly framingError: string | null;
+}> {}
+
+/** The awaited message never appeared within the collection limit. */
+class CollectExhausted extends Data.TaggedError("CollectExhausted")<{
+  readonly limit: number;
+}> {}
+
+/** The proxy spoke during a window the protocol requires to stay silent. */
+class UnexpectedMessage extends Data.TaggedError("UnexpectedMessage")<{
+  readonly payload: Message;
+}> {}
+
 function backendSpec(role: string): { cmd: string; args: string[] } {
   return { cmd: process.execPath, args: ["-e", FAKE_BACKEND, role] };
 }
@@ -94,14 +132,14 @@ function backendSpec(role: string): { cmd: string; args: string[] } {
 class ProxyClient {
   readonly child: ChildProcess;
   stderr = "";
+  /** Last stdout framing failure, reported with any timeout it caused. */
+  framingError: string | null = null;
   private readonly decoder = new FrameDecoder("proxy-stdout");
   private readonly pending: Message[] = [];
   private readonly waiters: Array<{ resolve: (m: Message) => void; timer: NodeJS.Timeout }> = [];
 
   constructor(specs: Array<{ cmd: string; args: string[] }>) {
-    const dir = mkdtempSync(join(tmpdir(), "lsp-proxy-"));
-    const configPath = join(dir, "backends.json");
-    writeFileSync(configPath, JSON.stringify(specs), "utf8");
+    const configPath = makeTempFile("lsp-proxy-", "backends.json", JSON.stringify(specs));
     this.child = spawn(process.execPath, ["dist/proxy/index.js", configPath], {
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -109,13 +147,89 @@ class ProxyClient {
       this.decoder.push(chunk);
       try {
         for (const message of this.decoder.drain()) {this.deliver(message);}
-      } catch {
-        // stdout framing errors are surfaced by whatever assertion is waiting
+      } catch (error) {
+        // A framing failure starves every waiter, so keep it and hand it to
+        // the timeout that it causes rather than losing the real reason.
+        this.framingError = error instanceof Error ? error.message : String(error);
       }
     });
     this.child.stderr?.on("data", (chunk: Buffer) => {
       this.stderr += chunk.toString("utf8");
     });
+  }
+
+  send(message: Message): void {
+    this.child.stdin?.write(encodePacket(message));
+  }
+
+  /**
+   * Collect until `count` messages satisfying `matches` have arrived.
+   * @param matches Predicate identifying the messages being counted.
+   * @param count How many matching messages end the collection.
+   * @returns Every message seen, ending with the `count`-th match.
+   */
+  collectMatching(
+    matches: (message: Message) => boolean,
+    count: number,
+  ): Effect.Effect<Message[], MessageTimeout | CollectExhausted> {
+    return this.collectUntil(
+      (message, all) => matches(message) && all.filter(matches).length === count,
+    );
+  }
+
+  collectUntil(
+    predicate: (message: Message, all: Message[]) => boolean,
+    limit = COLLECT_LIMIT,
+  ): Effect.Effect<Message[], MessageTimeout | CollectExhausted> {
+    const nextMessage = (): Effect.Effect<Message, MessageTimeout> => this.next();
+    return Effect.gen(function* () {
+      const all: Message[] = [];
+      for (let index = 0; index < limit; index += 1) {
+        const message = yield* nextMessage();
+        all.push(message);
+        if (predicate(message, all)) {return all;}
+      }
+      return yield* new CollectExhausted({ limit });
+    });
+  }
+
+  expectSilence(ms: number): Effect.Effect<void, UnexpectedMessage> {
+    return Effect.matchEffect(this.next(ms), {
+      onFailure: () => Effect.void,
+      onSuccess: (payload) => Effect.fail(new UnexpectedMessage({ payload })),
+    });
+  }
+
+  next(timeout = DEFAULT_MESSAGE_TIMEOUT_MS): Effect.Effect<Message, MessageTimeout> {
+    return Effect.async<Message, MessageTimeout>((resume) => {
+      const buffered = this.pending.shift();
+      if (buffered !== undefined) {
+        resume(Effect.succeed(buffered));
+        return;
+      }
+      const timer = setTimeout(() => {
+        const index = this.waiters.findIndex((waiter) => waiter.timer === timer);
+        if (index >= 0) {this.waiters.splice(index, 1);}
+        resume(Effect.fail(
+          new MessageTimeout({ timeoutMs: timeout, framingError: this.framingError }),
+        ));
+      }, timeout);
+      this.waiters.push({ resolve: (message) => { resume(Effect.succeed(message)); }, timer });
+    });
+  }
+
+  waitExit(): Effect.Effect<number> {
+    return Effect.async<number>((resume) => {
+      if (this.child.exitCode !== null) {
+        resume(Effect.succeed(this.child.exitCode));
+        return;
+      }
+      this.child.on("exit", (code) => { resume(Effect.succeed(code ?? -1)); });
+    });
+  }
+
+  dispose(): void {
+    if (this.child.exitCode === null) {this.child.kill("SIGKILL");}
   }
 
   private deliver(message: Message): void {
@@ -127,55 +241,6 @@ class ProxyClient {
       this.pending.push(message);
     }
   }
-
-  send(message: Message): void {
-    this.child.stdin?.write(encodePacket(message));
-  }
-
-  next(timeout = 4000): Promise<Message> {
-    const buffered = this.pending.shift();
-    if (buffered) {return Promise.resolve(buffered);}
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const index = this.waiters.findIndex((w) => w.timer === timer);
-        if (index >= 0) {this.waiters.splice(index, 1);}
-        reject(new Error("timeout waiting for proxy message"));
-      }, timeout);
-      this.waiters.push({ resolve, timer });
-    });
-  }
-
-  async collectUntil(
-    predicate: (message: Message, all: Message[]) => boolean,
-    limit = 40,
-  ): Promise<Message[]> {
-    const all: Message[] = [];
-    for (let i = 0; i < limit; i += 1) {
-      const message = await this.next();
-      all.push(message);
-      if (predicate(message, all)) {return all;}
-    }
-    throw new Error("expected proxy message was not observed");
-  }
-
-  async expectSilence(ms: number): Promise<void> {
-    try {
-      const message = await this.next(ms);
-      throw new Error(`unexpected proxy message: ${JSON.stringify(message)}`);
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("timeout")) {return;}
-      throw error;
-    }
-  }
-
-  waitExit(): Promise<number> {
-    if (this.child.exitCode !== null) {return Promise.resolve(this.child.exitCode);}
-    return new Promise((resolve) => this.child.on("exit", (code) => { resolve(code ?? -1); }));
-  }
-
-  dispose(): void {
-    if (this.child.exitCode === null) {this.child.kill("SIGKILL");}
-  }
 }
 
 let active: ProxyClient | undefined;
@@ -186,6 +251,75 @@ afterEach(() => {
 
 function frame(message: Message): Buffer {
   return encodePacket(message);
+}
+
+function isConfigurationRequest(message: Message): boolean {
+  return message.method === "workspace/configuration";
+}
+
+function isLogMessage(message: Message): boolean {
+  return message.method === "window/logMessage";
+}
+
+/**
+ * Read the human-readable text of a `window/logMessage` notification.
+ * @param message A notification already known to be `window/logMessage`.
+ * @returns The `params.message` string the backend sent.
+ */
+function logText(message: Message): string {
+  return (
+    // `window/logMessage` params carry a string `message` field, and the fake
+    // backends in this file are its only senders, so the shape is known.
+    message.params as { message: string }
+  ).message;
+}
+
+/**
+ * Read the single configuration section a `workspace/configuration` asks for.
+ * @param message A request already known to be `workspace/configuration`.
+ * @returns The requested section name.
+ */
+function configurationSection(message: Message): string {
+  return (
+    // The fake backends' configuration request is generated with exactly one
+    // item, so index 0 is known to exist.
+    message.params as { items: Array<{ section: string }> }
+  ).items[0].section;
+}
+
+/**
+ * Read the URI a `textDocument/publishDiagnostics` notification is about.
+ * @param message A notification already known to be publishDiagnostics.
+ * @returns The document URI.
+ */
+function publishUri(message: Message): string {
+  return (
+    // publishDiagnostics names the URI whose diagnostics it replaces, so a
+    // `uri` field is guaranteed on every such notification.
+    message.params as { uri: string }
+  ).uri;
+}
+
+/**
+ * Read the diagnostics list of a publishDiagnostics notification.
+ * @param message A notification already known to be publishDiagnostics.
+ * @returns The diagnostics, each carrying the originating backend's name.
+ */
+function publishedDiagnostics(message: Message): Array<{ message: string }> {
+  return (
+    // The fake backends put their role in each entry's message, and a
+    // diagnostics array is guaranteed on every publishDiagnostics.
+    message.params as { diagnostics: Array<{ message: string }> }
+  ).diagnostics;
+}
+
+/**
+ * The message a `collectUntil` stopped on.
+ * @param messages A non-empty collection ending on the awaited message.
+ * @returns Its last element.
+ */
+function lastOf(messages: Message[]): Message {
+  return messages[messages.length - 1];
 }
 
 describe("frame decoding", () => {
@@ -220,6 +354,26 @@ describe("frame decoding", () => {
     decoder.push(Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`), body]));
     expect(() => [...decoder.drain()]).toThrow(/must be an object/);
   });
+
+  it("reassembles any frame cut at any byte, including non-ASCII bodies", () => {
+    fc.assert(
+      fc.property(
+        fc.string({ unit: "grapheme", maxLength: 20 }),
+        fc.nat(),
+        (text, splitSeed) => {
+          const message: Message = { jsonrpc: "2.0", id: 3, method: "textDocument/didOpen", text };
+          const packet = frame(message);
+          const decoder = new FrameDecoder("test");
+          const split = splitSeed % (packet.length + 1);
+          decoder.push(packet.subarray(0, split));
+          decoder.push(packet.subarray(split));
+          // Content-Length counts UTF-8 bytes rather than characters, so the
+          // decoder must rebuild the same object from any chunk boundary.
+          expect([...decoder.drain()]).toEqual([message]);
+        },
+      ),
+    );
+  });
 });
 
 describe("backend configuration", () => {
@@ -240,197 +394,234 @@ describe("backend configuration", () => {
   it("rejects non-string args", () => {
     expect(() => parseBackendSpecs([{ cmd: "server", args: [1] }])).toThrow(/array of strings/);
   });
+
+  it("maps every accepted entry to argv with cmd first, in config order", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            cmd: fc.string({ minLength: 1 }),
+            args: fc.array(fc.string(), { maxLength: 4 }),
+          }),
+          { minLength: 1, maxLength: 4 },
+        ),
+        (entries) => {
+          // argv is exactly [cmd, ...args] for every entry and config order is
+          // preserved, which is what keeps index 0 the primary backend.
+          expect(parseBackendSpecs(entries).map(({ argv }) => argv)).toEqual(
+            entries.map(({ cmd, args }) => [cmd, ...args]),
+          );
+        },
+      ),
+    );
+  });
 });
 
 describe("multiplexing primary and diagnostics sidecar", () => {
-  it("merges capabilities, routes requests, fans out notifications, sequences shutdown", async () => {
-    active = new ProxyClient([backendSpec("primary"), backendSpec("sidecar")]);
-    const client = active;
+  it("merges capabilities, routes requests, fans out notifications, sequences shutdown", () =>
+    Effect.runPromise(Effect.gen(function* () {
+      active = new ProxyClient([backendSpec("primary"), backendSpec("sidecar")]);
+      const client = active;
 
-    client.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { capabilities: {}, workspaceFolders: [] } });
-    const initialize = await client.next();
-    expect(initialize.id).toBe(1);
-    const result = initialize.result as { serverInfo: unknown; capabilities: Record<string, unknown> };
-    expect(result.serverInfo).toEqual({ name: "safer-lsp-proxy", version: PACKAGE_VERSION });
-    expect(result.capabilities.hoverProvider).toBe(true);
-    expect((result.capabilities.workspace as { workspaceFolders: { supported: boolean } }).workspaceFolders.supported).toBe(true);
+      client.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { capabilities: {}, workspaceFolders: [] } });
+      const initialize = yield* client.next();
+      expect(initialize.id).toBe(1);
+      const result = (
+        // The proxy assembles one merged envelope from its backends, so a
+        // reply to `initialize` is guaranteed to carry `result`.
+        initialize.result as { serverInfo: unknown; capabilities: Record<string, unknown> }
+      );
+      // The proxy presents itself, not a backend: clients must never see
+      // through to the multiplexed servers.
+      expect(result.serverInfo).toEqual({ name: "safer-lsp-proxy", version: PACKAGE_VERSION });
+      // hoverProvider comes from the primary and workspaceFolders from the
+      // sidecar, so a merged capability set carries both.
+      expect(result.capabilities.hoverProvider).toBe(true);
+      const workspace = (
+        // The sidecar advertised workspace-folder support, so the merged
+        // capabilities are guaranteed to carry the nested object.
+        result.capabilities.workspace as { workspaceFolders: { supported: boolean } }
+      );
+      expect(workspace.workspaceFolders.supported).toBe(true);
 
-    client.send({ jsonrpc: "2.0", method: "initialized", params: {} });
-    const configRequests = await client.collectUntil(
-      (_m, all) => all.filter((item) => item.method === "workspace/configuration").length === 2,
-    );
-    const routed = configRequests.filter((item) => item.method === "workspace/configuration");
-    expect(new Set(routed.map((item) => item.id)).size).toBe(2);
-    for (const request of routed) {
-      const section = (request.params as { items: Array<{ section: string }> }).items[0].section;
-      client.send({ jsonrpc: "2.0", id: request.id, result: [section] });
-    }
-    const routedLogs = await client.collectUntil(
-      (_m, all) =>
-        all.filter(
-          (item) =>
-            item.method === "window/logMessage" &&
-            String((item.params as { message: string }).message).includes("response routed: true"),
-        ).length === 2,
-    );
-    expect(
-      new Set(
-        routedLogs
-          .filter((item) => item.method === "window/logMessage")
-          .map((item) => (item.params as { message: string }).message),
-      ),
-    ).toEqual(new Set(["primary response routed: true", "sidecar response routed: true"]));
+      client.send({ jsonrpc: "2.0", method: "initialized", params: {} });
+      const configRequests = yield* client.collectMatching(isConfigurationRequest, BACKEND_COUNT);
+      const routed = configRequests.filter(isConfigurationRequest);
+      // Each backend's request reaches the client under its own id, so the
+      // client's reply can be routed back to the backend that asked.
+      expect(new Set(routed.map((item) => item.id)).size).toBe(BACKEND_COUNT);
+      for (const request of routed) {
+        client.send({ jsonrpc: "2.0", id: request.id, result: [configurationSection(request)] });
+      }
+      const routedLogs = yield* client.collectMatching(
+        (message) => isLogMessage(message) && logText(message).includes("response routed: true"),
+        BACKEND_COUNT,
+      );
+      // Both backends confirm they received their own section back, which is
+      // the only evidence the id remap was inverted correctly.
+      expect(new Set(routedLogs.filter(isLogMessage).map(logText))).toEqual(
+        new Set(["primary response routed: true", "sidecar response routed: true"]),
+      );
 
-    const uri = "file:///tmp/example.ts";
-    client.send({
-      jsonrpc: "2.0",
-      method: "textDocument/didOpen",
-      params: { textDocument: { uri, languageId: "typescript", version: 1, text: "const value = 1;" } },
-    });
-    const diagnostics = await client.collectUntil(
-      (message) =>
-        message.method === "textDocument/publishDiagnostics" &&
-        (message.params as { diagnostics: unknown[] }).diagnostics.length === 2,
-    );
-    const merged = (diagnostics[diagnostics.length - 1].params as { diagnostics: Array<{ message: string }> }).diagnostics;
-    expect(merged.map((d) => d.message)).toEqual(["primary", "sidecar"]);
+      const uri = "file:///tmp/example.ts";
+      client.send({
+        jsonrpc: "2.0",
+        method: "textDocument/didOpen",
+        params: { textDocument: { uri, languageId: "typescript", version: 1, text: "const value = 1;" } },
+      });
+      const diagnostics = yield* client.collectUntil(
+        (message) =>
+          message.method === "textDocument/publishDiagnostics" &&
+          publishedDiagnostics(message).length === MERGED_DIAGNOSTIC_COUNT,
+      );
+      // Diagnostics from both backends are merged into one publish per URI,
+      // in backend order, rather than the second replacing the first.
+      expect(publishedDiagnostics(lastOf(diagnostics)).map((d) => d.message)).toEqual(
+        ["primary", "sidecar"],
+      );
 
-    client.send({
-      jsonrpc: "2.0",
-      id: 0,
-      method: "textDocument/hover",
-      params: { textDocument: { uri }, position: { line: 0, character: 1 } },
-    });
-    const hover = await client.next();
-    expect(hover).toEqual({ jsonrpc: "2.0", id: 0, result: { contents: "primary hover" } });
-    await client.expectSilence(150);
+      client.send({
+        jsonrpc: "2.0",
+        id: 0,
+        method: "textDocument/hover",
+        params: { textDocument: { uri }, position: { line: 0, character: 1 } },
+      });
+      const hover = yield* client.next();
+      // Only the primary answers a request; the sidecar's reply must never
+      // reach the client, so nothing follows the hover result.
+      expect(hover).toEqual({ jsonrpc: "2.0", id: 0, result: { contents: "primary hover" } });
+      yield* client.expectSilence(150);
 
-    client.send({
-      jsonrpc: "2.0",
-      method: "workspace/didChangeWorkspaceFolders",
-      params: { event: { added: [], removed: [] } },
-    });
-    const folderLogs = await client.collectUntil(
-      (_m, all) =>
-        all.filter(
-          (item) =>
-            item.method === "window/logMessage" &&
-            String((item.params as { message: string }).message).includes("received folders"),
-        ).length === 2,
-    );
-    expect(
-      new Set(
-        folderLogs
-          .filter((item) => item.method === "window/logMessage")
-          .map((item) => (item.params as { message: string }).message),
-      ),
-    ).toEqual(new Set(["primary received folders", "sidecar received folders"]));
+      client.send({
+        jsonrpc: "2.0",
+        method: "workspace/didChangeWorkspaceFolders",
+        params: { event: { added: [], removed: [] } },
+      });
+      const folderLogs = yield* client.collectMatching(
+        (message) => isLogMessage(message) && logText(message).includes("received folders"),
+        BACKEND_COUNT,
+      );
+      // Notifications fan out to every backend, unlike requests, so both
+      // report having seen the folder change.
+      expect(new Set(folderLogs.filter(isLogMessage).map(logText))).toEqual(
+        new Set(["primary received folders", "sidecar received folders"]),
+      );
 
-    client.send({ jsonrpc: "2.0", id: 3, method: "shutdown" });
-    const shutdown = await client.next();
-    expect(shutdown).toEqual({ jsonrpc: "2.0", id: 3, result: null });
-    client.send({ jsonrpc: "2.0", method: "exit" });
-    expect(await client.waitExit()).toBe(0);
-  }, 20_000);
+      client.send({ jsonrpc: "2.0", id: 3, method: "shutdown" });
+      const shutdown = yield* client.next();
+      // The sidecar replies 50ms late, so a single shutdown result proves the
+      // proxy waited for every backend before answering.
+      expect(shutdown).toEqual({ jsonrpc: "2.0", id: 3, result: null });
+      client.send({ jsonrpc: "2.0", method: "exit" });
+      expect(yield* client.waitExit()).toBe(CLEAN_EXIT_CODE);
+    })), INTEGRATION_TIMEOUT_MS);
 });
 
 describe("crash isolation", () => {
-  it("survives a sidecar exit and clears its stale diagnostics", async () => {
-    active = new ProxyClient([backendSpec("primary"), backendSpec("sidecar")]);
-    const client = active;
+  it("survives a sidecar exit and clears its stale diagnostics", () =>
+    Effect.runPromise(Effect.gen(function* () {
+      active = new ProxyClient([backendSpec("primary"), backendSpec("sidecar")]);
+      const client = active;
 
-    client.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { capabilities: {} } });
-    await client.next();
+      client.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { capabilities: {} } });
+      yield* client.next();
 
-    const uri = "file:///tmp/live.ts";
-    client.send({
-      jsonrpc: "2.0",
-      method: "textDocument/didOpen",
-      params: { textDocument: { uri, languageId: "typescript", version: 1, text: "x" } },
-    });
-    await client.collectUntil(
-      (message) =>
-        message.method === "textDocument/publishDiagnostics" &&
-        (message.params as { uri: string; diagnostics: unknown[] }).uri === uri &&
-        (message.params as { diagnostics: unknown[] }).diagnostics.length === 2,
-    );
+      const uri = "file:///tmp/live.ts";
+      client.send({
+        jsonrpc: "2.0",
+        method: "textDocument/didOpen",
+        params: { textDocument: { uri, languageId: "typescript", version: 1, text: "x" } },
+      });
+      yield* client.collectUntil(
+        (message) =>
+          message.method === "textDocument/publishDiagnostics" &&
+          publishUri(message) === uri &&
+          publishedDiagnostics(message).length === MERGED_DIAGNOSTIC_COUNT,
+      );
 
-    // A didOpen for the sidecar's crash URI kills only the sidecar.
-    client.send({
-      jsonrpc: "2.0",
-      method: "textDocument/didOpen",
-      params: { textDocument: { uri: "file:///crash-sidecar.ts", languageId: "typescript", version: 1, text: "x" } },
-    });
-    const cleared = await client.collectUntil(
-      (message) =>
-        message.method === "textDocument/publishDiagnostics" &&
-        (message.params as { uri: string }).uri === uri &&
-        (message.params as { diagnostics: unknown[] }).diagnostics.length === 1,
-    );
-    const remaining = (cleared[cleared.length - 1].params as { diagnostics: Array<{ message: string }> }).diagnostics;
-    expect(remaining.map((d) => d.message)).toEqual(["primary"]);
+      // A didOpen for the sidecar's crash URI kills only the sidecar.
+      client.send({
+        jsonrpc: "2.0",
+        method: "textDocument/didOpen",
+        params: { textDocument: { uri: "file:///crash-sidecar.ts", languageId: "typescript", version: 1, text: "x" } },
+      });
+      const cleared = yield* client.collectUntil(
+        (message) =>
+          message.method === "textDocument/publishDiagnostics" &&
+          publishUri(message) === uri &&
+          publishedDiagnostics(message).length === SURVIVING_DIAGNOSTIC_COUNT,
+      );
+      // The dead backend's diagnostics are retracted for every URI it had
+      // published, leaving exactly the surviving backend's findings.
+      expect(publishedDiagnostics(lastOf(cleared)).map((d) => d.message)).toEqual(["primary"]);
 
-    // Primary still answers after the sidecar is gone.
-    client.send({
-      jsonrpc: "2.0",
-      id: 5,
-      method: "textDocument/hover",
-      params: { textDocument: { uri }, position: { line: 0, character: 0 } },
-    });
-    const hover = await client.next();
-    expect(hover).toEqual({ jsonrpc: "2.0", id: 5, result: { contents: "primary hover" } });
-    expect(client.child.exitCode).toBeNull();
+      // Primary still answers after the sidecar is gone.
+      client.send({
+        jsonrpc: "2.0",
+        id: 5,
+        method: "textDocument/hover",
+        params: { textDocument: { uri }, position: { line: 0, character: 0 } },
+      });
+      const hover = yield* client.next();
+      expect(hover).toEqual({ jsonrpc: "2.0", id: 5, result: { contents: "primary hover" } });
+      // A sidecar crash is survivable, so the proxy itself must still be up.
+      expect(client.child.exitCode).toBeNull();
 
-    client.send({ jsonrpc: "2.0", method: "exit" });
-    expect(await client.waitExit()).toBe(0);
-  }, 20_000);
+      client.send({ jsonrpc: "2.0", method: "exit" });
+      expect(yield* client.waitExit()).toBe(CLEAN_EXIT_CODE);
+    })), INTEGRATION_TIMEOUT_MS);
 
-  it("exits with the primary's code when the primary dies", async () => {
-    active = new ProxyClient([backendSpec("primary"), backendSpec("sidecar")]);
-    const client = active;
+  it("exits with the primary's code when the primary dies", () =>
+    Effect.runPromise(Effect.gen(function* () {
+      active = new ProxyClient([backendSpec("primary"), backendSpec("sidecar")]);
+      const client = active;
 
-    client.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { capabilities: {} } });
-    await client.next();
+      client.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { capabilities: {} } });
+      yield* client.next();
 
-    client.send({
-      jsonrpc: "2.0",
-      method: "textDocument/didOpen",
-      params: { textDocument: { uri: "file:///crash-primary.ts", languageId: "typescript", version: 1, text: "x" } },
-    });
-    expect(await client.waitExit()).toBe(17);
-  }, 20_000);
+      client.send({
+        jsonrpc: "2.0",
+        method: "textDocument/didOpen",
+        params: { textDocument: { uri: "file:///crash-primary.ts", languageId: "typescript", version: 1, text: "x" } },
+      });
+      // Losing the primary is fatal, and the host learns why from the exit
+      // code: the proxy mirrors the primary's rather than inventing one.
+      expect(yield* client.waitExit()).toBe(PRIMARY_CRASH_EXIT_CODE);
+    })), INTEGRATION_TIMEOUT_MS);
 });
 
 describe("sidecar backpressure", () => {
-  it("drops sidecar writes past the buffer bound without stalling the client", async () => {
-    active = new ProxyClient([backendSpec("primary"), backendSpec("slowreader")]);
-    const client = active;
+  it("drops sidecar writes past the buffer bound without stalling the client", () =>
+    Effect.runPromise(Effect.gen(function* () {
+      active = new ProxyClient([backendSpec("primary"), backendSpec("slowreader")]);
+      const client = active;
 
-    client.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { capabilities: {} } });
-    await client.next();
+      client.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { capabilities: {} } });
+      yield* client.next();
 
-    const text = "x".repeat(256 * 1024);
-    for (let version = 0; version < 48; version += 1) {
+      const text = "x".repeat(FLOOD_CHUNK_BYTES);
+      for (let version = 0; version < FLOOD_MESSAGE_COUNT; version += 1) {
+        client.send({
+          jsonrpc: "2.0",
+          method: "textDocument/didChange",
+          params: { textDocument: { uri: "file:///big.ts", version }, contentChanges: [{ text }] },
+        });
+      }
+
+      // The client loop never stalls: the primary still answers a request
+      // sent right after the flood.
       client.send({
         jsonrpc: "2.0",
-        method: "textDocument/didChange",
-        params: { textDocument: { uri: "file:///big.ts", version }, contentChanges: [{ text }] },
+        id: 9,
+        method: "textDocument/hover",
+        params: { textDocument: { uri: "file:///big.ts" }, position: { line: 0, character: 0 } },
       });
-    }
+      const hover = yield* client.next();
+      expect(hover).toEqual({ jsonrpc: "2.0", id: 9, result: { contents: "primary hover" } });
+      // Dropping is deliberate and reported, not silent data loss.
+      expect(client.stderr).toMatch(/backpressured, dropping/);
 
-    // The client loop never stalls: the primary still answers a request
-    // sent right after the flood.
-    client.send({
-      jsonrpc: "2.0",
-      id: 9,
-      method: "textDocument/hover",
-      params: { textDocument: { uri: "file:///big.ts" }, position: { line: 0, character: 0 } },
-    });
-    const hover = await client.next();
-    expect(hover).toEqual({ jsonrpc: "2.0", id: 9, result: { contents: "primary hover" } });
-    expect(client.stderr).toMatch(/backpressured, dropping/);
-
-    client.send({ jsonrpc: "2.0", method: "exit" });
-    expect(await client.waitExit()).toBe(0);
-  }, 20_000);
+      client.send({ jsonrpc: "2.0", method: "exit" });
+      expect(yield* client.waitExit()).toBe(CLEAN_EXIT_CODE);
+    })), INTEGRATION_TIMEOUT_MS);
 });

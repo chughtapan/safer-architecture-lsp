@@ -17,6 +17,9 @@ import { log } from "./log.js";
 /** A sidecar buffers at most this many bytes before it starts dropping. */
 const MAX_SIDECAR_BUFFER = 4 * 1024 * 1024;
 
+/** Raised when a spawned backend cannot offer the stdio the proxy requires. */
+class BackendError extends Error {}
+
 /**
  * The owner's side of a backend: decoded messages, the backend going down, and
  * failures attributed to it. Every callback carries the backend index, which is
@@ -35,14 +38,16 @@ export interface BackendHandlers {
  * take the primary or sidecar path described in the file overview.
  */
 export class Backend {
+  readonly index: number;
+  readonly spec: BackendSpec;
   readonly diagnostics = new Map<string, unknown[]>();
   dropped = false;
   exited = false;
   exitCode = 1;
 
-  private process: ChildProcess | undefined;
+  private process?: ChildProcess;
   private stdoutEnded = false;
-  private handlers: BackendHandlers | undefined;
+  private handlers?: BackendHandlers;
   private exitResolvers: Array<() => void> = [];
 
   private primaryTail: Promise<void> = Promise.resolve();
@@ -50,10 +55,10 @@ export class Backend {
   private sidecarBytes = 0;
   private sidecarDraining = false;
 
-  constructor(
-    readonly index: number,
-    readonly spec: BackendSpec,
-  ) {}
+  constructor(index: number, spec: BackendSpec) {
+    this.index = index;
+    this.spec = spec;
+  }
 
   get label(): string {
     return this.spec.argv[0];
@@ -78,14 +83,14 @@ export class Backend {
       handlers.onError(this.index, `cannot start backend ${this.label}: ${error.message}`);
     });
     child.on("exit", (code, signal) => {
-      this.exitCode = code === null ? (signal ? 1 : 0) : code;
+      this.exitCode = code ?? (signal ? 1 : 0);
       this.exited = true;
       this.releaseExitWaiters();
       this.maybeClosed();
     });
 
     const stdout = child.stdout;
-    if (stdout === null) {throw new Error(`backend ${this.label} has no stdout`);}
+    if (stdout === null) {throw new BackendError(`backend ${this.label} has no stdout`);}
     const decoder = new FrameDecoder(this.label);
     stdout.on("data", (chunk: Buffer) => {
       decoder.push(chunk);
@@ -127,7 +132,7 @@ export class Backend {
 
   waitExit(): Promise<void> {
     if (this.exited || this.process === undefined) {return Promise.resolve();}
-    return new Promise((resolve) => this.exitResolvers.push(resolve));
+    return new Promise((resolve) => { this.exitResolvers.push(resolve); });
   }
 
   private maybeClosed(): void {
@@ -155,7 +160,9 @@ export class Backend {
         reject(new Error(`backend ${this.label} has no stdin`));
         return;
       }
-      stdin.write(packet, (error) => { error ? reject(error) : resolve(); });
+      stdin.write(packet, (error) => {
+        if (error) {reject(error);} else {resolve();}
+      });
     });
   }
 
@@ -180,8 +187,9 @@ export class Backend {
       this.sidecarBytes = 0;
       return;
     }
-    while (this.sidecarQueue.length > 0) {
-      const packet = this.sidecarQueue.shift() as Buffer;
+    for (;;) {
+      const packet = this.sidecarQueue.shift();
+      if (packet === undefined) {return;}
       this.sidecarBytes -= packet.length;
       if (!stdin.write(packet)) {
         this.sidecarDraining = true;

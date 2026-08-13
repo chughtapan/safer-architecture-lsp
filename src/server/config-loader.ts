@@ -81,7 +81,10 @@ export function loadWorkspaceConfig(projectRoot: string): LoadedWorkspaceConfig 
     };
   }
 
-  const candidate = raw as ArchitectureOptionsInput;
+  const candidate =
+    // `raw` is a plain JSON object here, and the schema check below rejects
+    // it before the options ever reach the registry, so the cast is safe.
+    raw as ArchitectureOptionsInput;
   try {
     // Validation only — the registry resolves again with projectRoot.
     resolveArchitectureOptions({ ...candidate, projectRoot });

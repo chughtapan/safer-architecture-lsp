@@ -10,6 +10,59 @@ import { createProgram } from "../src/analyzer/project/source-files.js";
 import { resolveArchitectureOptions } from "../src/index.js";
 import { makeFixture } from "./support/fixtures.js";
 
+interface RejectedOptionCase {
+  /** The raw input handed to `resolveArchitectureOptions`. */
+  readonly input: unknown;
+  /** The explanation the caller must get back for that input. */
+  readonly message: RegExp;
+}
+
+/**
+ * One entry per rejection branch the examples below pin individually: schema
+ * shape, missing written reason, duplicate domain name, escaping root, and a
+ * doubly-assigned ownership path.
+ */
+const REJECTED_OPTION_CASES: readonly RejectedOptionCase[] = [
+  { input: { projectRoot: 42 }, message: /architecture options/i },
+  {
+    input: { projectRoot: ".", allowedPublicSubpaths: [{ subpath: "./cli" }] },
+    message: /architecture options/i,
+  },
+  {
+    input: {
+      domains: [
+        { name: "orders", roots: ["src/orders"], entrypoints: ["src/orders/index.ts"], reason: "one" },
+        { name: "orders", roots: ["src/other"], entrypoints: ["src/other/index.ts"], reason: "two" },
+      ],
+    },
+    message: /duplicate domain name/,
+  },
+  {
+    input: {
+      domains: [{
+        name: "orders",
+        roots: ["src/../orders"],
+        entrypoints: ["orders/index.ts"],
+        reason: "orders",
+      }],
+    },
+    message: /must stay inside the project root/,
+  },
+  {
+    input: {
+      domains: [
+        { name: "orders", roots: ["src/orders"], entrypoints: ["src/orders/index.ts"], reason: "orders" },
+        { name: "billing", roots: ["src/billing"], entrypoints: ["src/billing/index.ts"], reason: "billing" },
+      ],
+      domainOwnership: [
+        { path: "src/legacy", domain: "orders", reason: "first" },
+        { path: "./src/legacy", domain: "billing", reason: "second" },
+      ],
+    },
+    message: /assigned more than once/,
+  },
+];
+
 it("resolves a bare projectRoot to absolute with defaults applied", () => {
   const resolved = resolveArchitectureOptions({ projectRoot: "." });
   expect(path.isAbsolute(resolved.projectRoot)).toBe(true);
@@ -104,5 +157,16 @@ it("removes inert emit paths from the analysis compiler options", () => {
     expect(program.getOptionsDiagnostics()).toHaveLength(0);
   } finally {
     fixture.cleanup();
+  }
+});
+
+it("rejects every malformed option shape, and rejects the same object again", () => {
+  for (const rejected of REJECTED_OPTION_CASES) {
+    // Each shape has to fail with the explanation that names its own defect,
+    // which is what lets a caller fix the config without bisecting it.
+    expect(() => resolveArchitectureOptions(rejected.input)).toThrow(rejected.message);
+    // The decode cache is keyed by object identity, so semantic validation has
+    // to run before the cache is written or the second resolve would succeed.
+    expect(() => resolveArchitectureOptions(rejected.input)).toThrow(rejected.message);
   }
 });

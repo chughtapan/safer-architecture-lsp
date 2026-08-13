@@ -106,5 +106,11 @@ function productionFolderNames(graph: ProjectArchitectureGraph): readonly string
     graph.modules
       .filter((module) => !module.isTestLike)
       .map((module) => module.folder),
-  )].sort();
+  )].sort(compareStrings);
+}
+
+// Code-unit order, identical to a bare `sort()` but independent of host locale.
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

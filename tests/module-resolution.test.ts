@@ -15,6 +15,7 @@ import {
 } from "../src/analyzer/project/source-files.js";
 import {
   analyzeResolvedArchitecture,
+  type ArchitectureDiagnosticRuleId,
   resolveArchitectureOptions,
 } from "../src/index.js";
 import { type Fixture, makeFixture } from "./support/fixtures.js";
@@ -25,6 +26,12 @@ afterEach(() => {
   fixture?.cleanup();
   fixture = null;
 });
+
+/** The rule a two-file import cycle must surface, whatever specifier form hid it. */
+const MODULE_CYCLE_RULE: ArchitectureDiagnosticRuleId = "no-module-cycle";
+
+/** One alias resolution is expected per distinct aliased specifier in the fixture. */
+const EXPECTED_ALIAS_RESOLUTIONS = 1;
 
 const ALIAS_TSCONFIG = JSON.stringify({
   compilerOptions: {
@@ -65,11 +72,13 @@ it("resolves tsconfig paths through one cached TypeScript snapshot", () => {
     (entry) => entry.specifier === "@core/b",
   );
 
-  expect(aliasResolutions).toHaveLength(1);
+  expect(aliasResolutions).toHaveLength(EXPECTED_ALIAS_RESOLUTIONS);
   expect(aliasResolutions[0]?.targetFile).toBe(path.join(fixture.root, "src/core/b.ts"));
+  // a.ts and b.ts import each other, one leg through the `@core/*` alias; the
+  // alias must resolve to the local file or the cycle would stay invisible.
   expect(
     analyzeResolvedArchitecture(options).diagnostics.map((diagnostic) => diagnostic.ruleId),
-  ).toContain("no-module-cycle");
+  ).toContain(MODULE_CYCLE_RULE);
 });
 
 it("classifies a package imports alias as a local module edge", () => {
@@ -98,7 +107,9 @@ it("classifies a package imports alias as a local module edge", () => {
 
   const options = resolveArchitectureOptions({ projectRoot: fixture.root });
   const report = analyzeResolvedArchitecture(options);
+  // b.ts reaches a.ts through the `#a` subpath import while a.ts imports b.ts
+  // directly; classifying `#a` as a local edge is what closes the cycle.
   expect(report.diagnostics.map((diagnostic) => diagnostic.ruleId)).toContain(
-    "no-module-cycle",
+    MODULE_CYCLE_RULE,
   );
 });

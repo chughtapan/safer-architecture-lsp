@@ -182,7 +182,10 @@ function handleCommentLine(
     state.errors.push(unknownRuleError(filePath, line, candidate));
     return;
   }
-  const ruleId = candidate as ArchitectureDiagnosticRuleId;
+  const ruleId =
+    // The guard above rejects any candidate missing from RULE_ID_SET, whose
+    // members are exactly the members of this union, so the cast is safe.
+    candidate as ArchitectureDiagnosticRuleId;
   if (reason.trim().length === 0) {
     state.errors.push(emptyReasonError(filePath, line, ruleId));
     return;

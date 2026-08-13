@@ -306,6 +306,7 @@ function externalPackagesFromType(
 
   const packages = new Set<string>();
   const seenTypes = new Set<ts.Type>();
+  const context: TypeVisitContext = { checker, location, visit };
 
   function visit(currentType: ts.Type, depth: number): void {
     if (depth > MAX_TYPE_DEPTH || seenTypes.has(currentType)) {return;}
@@ -321,7 +322,6 @@ function externalPackagesFromType(
     visitCompositeType(context, currentType, depth);
   }
 
-  const context = { checker, location, visit };
   visit(type, 0);
   exportedTypePackages.set(type, packages);
   return packages;
@@ -404,7 +404,12 @@ function visitTypeArguments(
   type: ts.Type,
   depth: number,
 ): void {
-  for (const argument of context.checker.getTypeArguments(type as ts.TypeReference)) {
+  const typeArguments = context.checker.getTypeArguments(
+    // The checker reads reference-only fields lazily, so the assertion is
+    // safe: a type that is not a reference yields an empty argument list.
+    type as ts.TypeReference,
+  );
+  for (const argument of typeArguments) {
     context.visit(argument, depth + 1);
   }
 }
@@ -414,7 +419,7 @@ function packageNameFromType(type: ts.Type): string | null {
   return aliasPackage ?? resolvePackageNameFromSymbol(type.symbol);
 }
 
-function resolvePackageNameFromSymbol(symbol: ts.Symbol | undefined): string | null {
+function resolvePackageNameFromSymbol(symbol?: ts.Symbol): string | null {
   if (symbol === undefined) {return null;}
   const declarations = symbol.getDeclarations() ?? [];
   for (const declaration of declarations) {

@@ -43,7 +43,7 @@ export function collectFolderEdges(
   return [...edgeMetadataByKey.entries()]
     .map(([key, edge]) => ({
       ...edge,
-      files: [...(edgeFilesByKey.get(key) ?? [])].sort(),
+      files: [...(edgeFilesByKey.get(key) ?? [])].sort(compareStrings),
     }))
     .sort(compareFolderEdges);
 }
@@ -94,4 +94,10 @@ function compareFolderEdges(left: FolderEdge, right: FolderEdge): number {
 
 function folderEdgeKey(edge: FolderEdge): string {
   return `${edge.from}/${edge.to}/${edge.kind}`;
+}
+
+// Code-unit order, identical to a bare `sort()` but independent of host locale.
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

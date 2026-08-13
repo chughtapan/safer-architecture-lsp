@@ -210,7 +210,7 @@ function modulePair(
 function candidateApiFolders(folder: string): readonly string[] {
   if (folder === ".") {return [];}
   const segments = folder.split("/");
-  return segments.map((_, index) => segments.slice(0, index + 1).join("/"));
+  return [...segments.keys()].map((index) => segments.slice(0, index + 1).join("/"));
 }
 
 function outsideFolder(module: SourceModule, folder: string): boolean {
@@ -229,7 +229,12 @@ function sharedFolder(
 }
 
 function firstSorted(values: ReadonlySet<string>): string | null {
-  return [...values].sort()[0] ?? null;
+  return [...values].sort(compareStrings)[0] ?? null;
+}
+
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }
 
 function sourceFolderPath(folder: string): string {

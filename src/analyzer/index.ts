@@ -74,10 +74,10 @@ interface DirectiveAnalysis {
  */
 export function analyzeResolvedArchitecture(
   options: ResolvedArchitectureOptions,
-  programProvider: () => ts.Program | null = () => createProgram(options),
+  programProvider?: () => ts.Program | null,
 ): ArchitectureReport {
   const packageJson = readPackageJson(options.projectRoot) ?? emptyPackageJson();
-  const program = programProvider();
+  const program = programProvider === undefined ? createProgram(options) : programProvider();
   const sourceFiles = program ? projectSourceFiles(program, options.projectRoot) : [];
   const unavailableDiagnostics = program === null ? analysisUnavailable(options) : [];
   const packageReportFile = findPackageReportFile(sourceFiles, options.projectRoot);
@@ -113,7 +113,12 @@ export function analyzeResolvedArchitecture(
     waivers: directiveAnalysis.waivers,
     snapshot: {
       projectRoot: options.projectRoot,
-      sourceFiles: sourceFiles.map((sourceFile) => path.resolve(sourceFile.fileName)).sort(),
+      sourceFiles: sourceFiles
+        .map((sourceFile) => path.resolve(sourceFile.fileName))
+        .sort((left, right) => {
+          if (left < right) {return -1;}
+          return left > right ? 1 : 0;
+        }),
       moduleResolutions: graph.moduleResolutions,
     },
   };
@@ -223,7 +228,11 @@ function shouldKeepDiagnostic(
   directiveAnalysis: DirectiveAnalysis,
 ): boolean {
   if (diagnostic.ruleId === ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID) {return true;}
-  const ruleId = diagnostic.ruleId as ArchitectureDiagnosticRuleId;
+  const ruleId =
+    // Every diagnostic here comes from the checks composed above, and the
+    // guard on the previous line removed the one id outside this union, so
+    // narrowing to a rule id is safe.
+    diagnostic.ruleId as ArchitectureDiagnosticRuleId;
   const resolvedFile = path.resolve(diagnostic.file);
   if (isDirectiveSuppressed(directiveAnalysis.directiveIndex, resolvedFile, ruleId)) {
     return false;

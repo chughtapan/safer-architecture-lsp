@@ -33,10 +33,10 @@ export function createProgram(
 ): ts.Program | null {
   const configPath =
     options.tsconfigPath ??
-    ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
+    ts.findConfigFile(options.projectRoot, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json");
   if (!configPath) {return null;}
 
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  const configFile = ts.readConfigFile(configPath, (fileName) => ts.sys.readFile(fileName));
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,
@@ -55,8 +55,14 @@ export function createProgram(
   const rootNames = scoped.length > 0 ? scoped : parsed.fileNames;
 
   // Passing the previous program lets TypeScript reuse every unchanged
-  // SourceFile, turning per-save rebuilds from cold to incremental.
-  return ts.createProgram(rootNames, analysisOptions(parsed.options), undefined, oldProgram);
+  // SourceFile, turning per-save rebuilds from cold to incremental. The
+  // first run has none, so the two cases are separated here rather than
+  // forwarding an unresolved optional into the compiler.
+  const compilerOptions = analysisOptions(parsed.options);
+  if (oldProgram === undefined) {
+    return ts.createProgram(rootNames, compilerOptions);
+  }
+  return ts.createProgram(rootNames, compilerOptions, undefined, oldProgram);
 }
 
 /**
@@ -105,7 +111,7 @@ export interface ProgramHealth {
 export function programHealth(options: ResolvedArchitectureOptions): ProgramHealth {
   const configPath =
     options.tsconfigPath ??
-    ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
+    ts.findConfigFile(options.projectRoot, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json");
   if (!configPath) {
     return {
       status: "missing-tsconfig",
@@ -113,7 +119,7 @@ export function programHealth(options: ResolvedArchitectureOptions): ProgramHeal
       detail: `no tsconfig.json found at or above ${options.projectRoot}; architecture analysis needs a TypeScript project`,
     };
   }
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  const configFile = ts.readConfigFile(configPath, (fileName) => ts.sys.readFile(fileName));
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,

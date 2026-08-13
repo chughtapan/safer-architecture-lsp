@@ -59,8 +59,8 @@ function folderSizeStats(
   options: ResolvedArchitectureOptions,
 ): FolderSizeStats {
   const unpairedTestChildren = setDifference(children.testChildren, children.productionChildren);
-  const productionChildren = [...children.productionChildren].sort();
-  const testChildren = [...children.testChildren].sort();
+  const productionChildren = [...children.productionChildren].sort(compareStrings);
+  const testChildren = [...children.testChildren].sort(compareStrings);
   return {
     productionChildren,
     testChildren,
@@ -134,12 +134,17 @@ function setDifference(
   left: ReadonlySet<string>,
   right: ReadonlySet<string>,
 ): readonly string[] {
-  return [...left].filter((value) => !right.has(value)).sort();
+  return [...left].filter((value) => !right.has(value)).sort(compareStrings);
 }
 
 function unionSorted(
   leftValues: readonly string[],
   rightValues: readonly string[],
 ): readonly string[] {
-  return [...new Set([...leftValues, ...rightValues])].sort();
+  return [...new Set([...leftValues, ...rightValues])].sort(compareStrings);
+}
+
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

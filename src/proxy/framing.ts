@@ -47,10 +47,13 @@ function parseContentLength(lines: string[], source: string): number {
  * instance is named by its `source`, which is quoted in every error it raises.
  */
 export class FrameDecoder {
+  private readonly source: string;
   private buffer: Buffer = Buffer.alloc(0);
   private contentLength: number | null = null;
 
-  constructor(private readonly source: string) {}
+  constructor(source: string) {
+    this.source = source;
+  }
 
   push(chunk: Buffer): void {
     this.buffer =
@@ -99,12 +102,16 @@ export class FrameDecoder {
     let decoded: unknown;
     try {
       decoded = JSON.parse(body.toString("utf8"));
-    } catch {
-      throw new ProtocolError(`${this.source}: LSP body is not valid UTF-8 JSON`);
+    } catch (error) {
+      throw new ProtocolError(`${this.source}: LSP body is not valid UTF-8 JSON`, { cause: error });
     }
-    if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {
+    if (!isMessage(decoded)) {
       throw new ProtocolError(`${this.source}: JSON-RPC payload must be an object`);
     }
-    return decoded as Message;
+    return decoded;
   }
+}
+
+function isMessage(value: unknown): value is Message {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

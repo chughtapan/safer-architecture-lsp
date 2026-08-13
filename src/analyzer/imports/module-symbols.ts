@@ -33,7 +33,7 @@ export function collectExportedSymbolNames(sourceFile: ts.SourceFile): readonly 
   for (const statement of sourceFile.statements) {
     addExportedSymbolNames(symbols, statement);
   }
-  return [...symbols].sort();
+  return [...symbols].sort(compareStrings);
 }
 
 /**
@@ -137,7 +137,7 @@ function importTargetContext(
   return {
     fromFile: path.resolve(fromFile),
     targetFile,
-    typeOnly: statement.importClause?.isTypeOnly ?? false,
+    typeOnly: statement.importClause?.phaseModifier === ts.SyntaxKind.TypeKeyword,
   };
 }
 
@@ -239,7 +239,7 @@ function addNamespaceImportBinding(
 }
 
 function resolveNamespaceImportFromClause(
-  importClause: ts.ImportClause | undefined,
+  importClause?: ts.ImportClause,
 ): ts.NamespaceImport | null {
   const namedBindings = importClause?.namedBindings;
   return namedBindings && ts.isNamespaceImport(namedBindings) ? namedBindings : null;
@@ -312,14 +312,6 @@ function hasExportModifier(statement: ts.Statement): boolean {
   );
 }
 
-function exportedDeclarationName(statement: ts.Statement): string | null {
-  for (const reader of DECLARATION_NAME_READERS) {
-    const name = reader(statement);
-    if (name !== undefined) {return name;}
-  }
-  return null;
-}
-
 type DeclarationNameReader = (statement: ts.Statement) => string | null | undefined;
 
 const DECLARATION_NAME_READERS: readonly DeclarationNameReader[] = [
@@ -329,3 +321,17 @@ const DECLARATION_NAME_READERS: readonly DeclarationNameReader[] = [
   (statement) => ts.isTypeAliasDeclaration(statement) ? statement.name.text : undefined,
   (statement) => ts.isEnumDeclaration(statement) ? statement.name.text : undefined,
 ];
+
+function exportedDeclarationName(statement: ts.Statement): string | null {
+  for (const reader of DECLARATION_NAME_READERS) {
+    const name = reader(statement);
+    if (name !== undefined) {return name;}
+  }
+  return null;
+}
+
+// Code-unit order, identical to a bare `sort()` but independent of host locale.
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
+}

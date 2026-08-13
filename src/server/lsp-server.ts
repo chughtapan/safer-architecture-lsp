@@ -19,7 +19,7 @@
  */
 
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
-import { Deferred, Effect, Ref, Scope, Stream } from "effect";
+import { Data, Deferred, Effect, Ref, Scope, Stream } from "effect";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -47,12 +47,29 @@ import { makeWorkspaceRegistry, type WorkspaceRegistry } from "./workspace-regis
 // Resolved at runtime relative to the compiled dist/server/ layout so the
 // advertised server version always matches the published package version.
 const PACKAGE_VERSION: string = (
+  // package.json ships inside this package, so the publish pipeline
+  // guarantees `version` is present and the assertion is safe.
   createRequire(import.meta.url)("../../package.json") as { version: string }
 ).version;
+
+/** Tag for a config-watcher teardown failure; always surfaced as a defect. */
+class WatcherCloseError extends Data.TaggedError("WatcherCloseError")<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
 
 const log = (message: string): void => {
   process.stderr.write(`[safer-architecture-lsp] ${message}\n`);
 };
+
+/**
+ * Log text for a rejected host call.
+ * @param cause Rejection value from the LSP connection or the watcher.
+ * @returns The error message, or a fixed string for non-`Error` rejections,
+ * so nothing is stringified through `Object.prototype.toString`.
+ */
+const describeFailure = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : "non-Error rejection";
 
 interface ServerDeps {
   readonly connection: Connection;
@@ -122,7 +139,12 @@ const sendDiagnostics = (
 ): Effect.Effect<void> =>
   Effect.sync(() => {
     const params: PublishDiagnosticsParams = { uri, diagnostics: [...diagnostics] };
-    deps.connection.sendDiagnostics(params);
+    // Fire-and-forget, so a publish loop never stalls on the wire. The
+    // rejection handler keeps a failed write off the unhandled-rejection
+    // path and onto stderr, which is the only stream `serve` can log to.
+    deps.connection.sendDiagnostics(params).catch((cause: unknown) => {
+      log(`sendDiagnostics failed for ${uri}: ${describeFailure(cause)}`);
+    });
   });
 
 const sendMergedDiagnostics = (
@@ -193,7 +215,9 @@ const publishWorkspace = (
       yield* Effect.sync(() => { log(`analysis failed for ${root}: ${outcome.error.message}`); });
     }
 
-    const previous = (yield* Ref.get(deps.published)).get(root) ?? new Map();
+    const previous =
+      (yield* Ref.get(deps.published)).get(root) ??
+      new Map<string, readonly Diagnostic[]>();
     const affectedUris = new Set([...previous.keys(), ...nextUris.keys()]);
     yield* Ref.update(deps.published, (map) => {
       const next = new Map(map);
@@ -281,7 +305,9 @@ const attachProject = (
  */
 const detachProject = (deps: ServerDeps, root: string): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const previous = (yield* Ref.get(deps.published)).get(root) ?? new Map();
+    const previous =
+      (yield* Ref.get(deps.published)).get(root) ??
+      new Map<string, readonly Diagnostic[]>();
     yield* Ref.update(deps.published, (map) => {
       const next = new Map(map);
       next.delete(root);
@@ -308,7 +334,9 @@ const publishWorkspaceDiagnostics = (
   diagnosticsByUri: ReadonlyMap<string, readonly Diagnostic[]>,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const previous = (yield* Ref.get(deps.workspacePublished)).get(root) ?? new Map();
+    const previous =
+      (yield* Ref.get(deps.workspacePublished)).get(root) ??
+      new Map<string, readonly Diagnostic[]>();
     const affectedUris = new Set([...previous.keys(), ...diagnosticsByUri.keys()]);
     yield* Ref.update(deps.workspacePublished, (map) => {
       const next = new Map(map);
@@ -400,24 +428,42 @@ function workspaceMetadataPaths(root: string): string[] {
       paths.add(project.packageJsonPath);
     }
   }
-  return [...paths].sort();
+  // Plain code-unit ordering, matching the default `.sort()` this replaces, so
+  // the watched-path set stays byte-identical across locales.
+  return [...paths].sort(compareCodeUnits);
 }
 
-const syncWorkspaceWatcherPaths = (
+/**
+ * Code-unit string ordering, identical to a comparator-less `.sort()`.
+ * @param a Left operand.
+ * @param b Right operand.
+ * @returns Negative, zero, or positive per the `Array.prototype.sort` contract.
+ */
+function compareCodeUnits(a: string, b: string): number {
+  if (a < b) {return -1;}
+  if (a > b) {return 1;}
+  return 0;
+}
+
+// Declared as a hoisted function so `reloadWorkspaceRoot`, which runs after
+// the watcher is installed, can call it from above its definition.
+function syncWorkspaceWatcherPaths(
   deps: ServerDeps,
   root: string,
-): Effect.Effect<void> =>
-  Effect.promise(async () => {
+): Effect.Effect<void> {
+  return Effect.sync(() => {
     const watcher = deps.configWatchers.get(root);
     if (watcher === undefined) {return;}
     const previous = deps.configWatcherPaths.get(root) ?? new Set<string>();
     const next = new Set(workspaceMetadataPaths(root));
     const removed = [...previous].filter((candidate) => !next.has(candidate));
     const added = [...next].filter((candidate) => !previous.has(candidate));
-    if (removed.length > 0) {await watcher.unwatch(removed);}
+    // chokidar 5's `unwatch`/`add` are synchronous and return the watcher.
+    if (removed.length > 0) {watcher.unwatch(removed);}
     if (added.length > 0) {watcher.add(added);}
     deps.configWatcherPaths.set(root, next);
   });
+}
 
 function scheduleWorkspaceReload(
   deps: ServerDeps,
@@ -471,25 +517,42 @@ const watchWorkspaceConfig = (
       return watcher;
     }),
     (watcher) =>
-      Effect.promise(async () => {
+      Effect.suspend(() => {
         const timer = deps.reloadTimers.get(root);
         if (timer !== undefined) {clearTimeout(timer);}
         deps.reloadTimers.delete(root);
         deps.configWatcherPaths.delete(root);
         deps.reloadLocks.delete(root);
-        await watcher.close();
+        // Same shape as the engine's watcher release: a close failure is a
+        // defect, never a recoverable error, so release stays `never`-failing.
+        return Effect.tryPromise({
+          try: () => watcher.close(),
+          catch: (cause) =>
+            new WatcherCloseError({ message: `watcher.close failed for ${root}`, cause }),
+        }).pipe(Effect.orDie);
       }),
   ).pipe(Effect.asVoid);
+
+/**
+ * The single-root fields `initialize` carried before workspace folders
+ * existed. The protocol retired both in favour of `workspaceFolders`, but
+ * plenty of clients still send only these, and total silence for them would
+ * be indistinguishable from a clean workspace — so the server reads them
+ * through this narrow structural view of `InitializeParams`.
+ */
+interface LegacyInitializeRoots {
+  readonly rootUri?: string | null;
+  readonly rootPath?: string | null;
+}
 
 const workspaceRootsFrom = (params: InitializeParams): readonly string[] => {
   const folders = params.workspaceFolders;
   if (folders && folders.length > 0) {
     return folders.map((folder) => fileURLToPath(folder.uri));
   }
-  // Plenty of clients still send only rootUri/rootPath; total silence
-  // for them would be indistinguishable from a clean workspace.
-  if (params.rootUri) {return [fileURLToPath(params.rootUri)];}
-  if (params.rootPath) {return [path.resolve(params.rootPath)];}
+  const legacy: LegacyInitializeRoots = params;
+  if (legacy.rootUri) {return [fileURLToPath(legacy.rootUri)];}
+  if (legacy.rootPath) {return [path.resolve(legacy.rootPath)];}
   return [];
 };
 
@@ -592,7 +655,13 @@ const setupWorkspaceFolderHandler = (
       const timer = deps.reloadTimers.get(root);
       if (timer !== undefined) {clearTimeout(timer);}
       deps.reloadTimers.delete(root);
-      if (watcher) {void watcher.close();}
+      if (watcher) {
+        // Detached on purpose: the folder-change callback must return before
+        // the close settles. Failures go to stderr, never stdout.
+        watcher.close().catch((cause: unknown) => {
+          log(`watcher close failed for ${root}: ${describeFailure(cause)}`);
+        });
+      }
       const lock = deps.reloadLocks.get(root);
       const detach = detachWorkspaceRoot(deps, root);
       runInScope(lock === undefined ? detach : lock.withPermits(1)(detach));
@@ -684,10 +753,11 @@ export const makeLspServer = (
     // on it can proceed.
     yield* Effect.forkScoped(
       Effect.gen(function* () {
-        while (initParams === null) {
+        let params: InitializeParams | null = initParams;
+        while (params === null) {
           yield* Effect.sleep("50 millis");
+          params = initParams;
         }
-        const params: InitializeParams = initParams;
         if (params.capabilities.workspace?.workspaceFolders === true) {
           yield* Effect.sync(() => { setupWorkspaceFolderHandler(deps, runInScope); });
         }

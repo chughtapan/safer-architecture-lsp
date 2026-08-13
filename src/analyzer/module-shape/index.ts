@@ -28,6 +28,6 @@ export function checkModuleShape(
     ...implicitBoundaryModuleDiagnostics(graph, options),
     ...sharedKernelCohesionDiagnostics(graph, options),
     ...trivialSinkFileDiagnostics(graph, options),
-    ...fatOrchestratorDiagnostics(graph, options),
+    ...fatOrchestratorDiagnostics(graph),
   ]);
 }

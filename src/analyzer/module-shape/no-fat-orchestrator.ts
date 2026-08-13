@@ -10,7 +10,7 @@ import type {
   ProjectArchitectureGraph,
   SourceModule,
 } from "../imports/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
+import type { ArchitectureDiagnostic } from "../project/api/index.js";
 import {
   generatedModule,
 } from "../project/index.js";
@@ -31,15 +31,11 @@ const ENTRY_PATH_PATTERNS = [
  * 20 top-level statements, and at most one distinct consumer.
  * @param graph Supplies the module list and each module's consumers, which a
  * module's own record does not carry.
- * @param _options Unused; the thresholds here are fixed constants. The
- * parameter keeps the signature interchangeable with the other module-shape
- * checks the barrel calls.
  * @returns One warning per fat orchestrator; empty when every wiring-shaped
  * file is reachable as an entry point.
  */
 export function fatOrchestratorDiagnostics(
   graph: ProjectArchitectureGraph,
-  _options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   return graph.modules.flatMap((module) => fatOrchestratorDiagnostic(graph, module));
 }

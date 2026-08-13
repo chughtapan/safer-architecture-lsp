@@ -8,10 +8,31 @@
 import { afterEach, expect, it } from "vitest";
 import {
   analyzeResolvedArchitecture,
+  type ArchitectureDiagnosticRuleId,
   type ArchitectureOptionsInput,
   resolveArchitectureOptions,
 } from "../src/index.js";
 import { type Fixture, makeFixture } from "./support/fixtures.js";
+
+/**
+ * The domain rule ids this suite pins, declared against the registry union so
+ * a rename in `rule-ids.ts` fails the type-check rather than leaving these
+ * assertions looking for a rule that no longer exists.
+ */
+const DOMAIN_CYCLE_RULE: ArchitectureDiagnosticRuleId = "no-domain-cycle";
+const DOMAIN_BOUNDARY_BYPASS_RULE: ArchitectureDiagnosticRuleId =
+  "no-domain-boundary-bypass";
+const CROSS_DOMAIN_SIDE_EFFECT_RULE: ArchitectureDiagnosticRuleId =
+  "no-cross-domain-side-effect";
+const DOMAIN_OWNERSHIP_RULE: ArchitectureDiagnosticRuleId =
+  "require-domain-ownership";
+
+/**
+ * The cycle the fixture below wires: billing's entrypoint imports orders'
+ * entrypoint, orders reaches back into billing. Rendered from the smallest
+ * domain name so the path is stable whichever domain is visited first.
+ */
+const EXPECTED_DOMAIN_CYCLE_PATH = "billing -> orders -> billing";
 
 let fixture: Fixture | null = null;
 
@@ -55,7 +76,9 @@ it("infers and overrides ownership while exempting composition roots", () => {
   const report = analyzeResolvedArchitecture(
     resolveArchitectureOptions({ ...domainOptions, projectRoot: fixture.root }),
   );
-  const ownership = report.diagnostics.filter(({ ruleId }) => ruleId === "require-domain-ownership");
+  const ownership = report.diagnostics.filter(({ ruleId }) => ruleId === DOMAIN_OWNERSHIP_RULE);
+  // Only `src/unowned.ts` is unclaimed: the two domain roots own their files,
+  // the override hands `src/legacy` to orders, and a composition root is exempt.
   expect(ownership).toHaveLength(1);
   expect(ownership[0]?.file.endsWith("/src/unowned.ts")).toBe(true);
 });
@@ -78,12 +101,17 @@ it("reports domain SCCs, boundary bypasses, and cross-domain side effects", () =
     resolveArchitectureOptions({ ...domainOptions, projectRoot: fixture.root }),
   );
   const ids = report.diagnostics.map(({ ruleId }) => ruleId);
-  expect(ids).toContain("no-domain-cycle");
-  expect(ids).toContain("no-domain-boundary-bypass");
-  expect(ids).toContain("no-cross-domain-side-effect");
-  expect(ids.filter((ruleId) => ruleId === "no-cross-domain-side-effect")).toHaveLength(2);
-  expect(report.diagnostics.find(({ ruleId }) => ruleId === "no-domain-cycle")?.message)
-    .toContain("billing -> orders -> billing");
+  // The two entrypoints import each other (cycle), orders reaches past
+  // billing's entrypoint into `internal.ts` (bypass), and the two bare
+  // `import "..."` statements cross the boundary for their side effects only.
+  expect(ids).toContain(DOMAIN_CYCLE_RULE);
+  expect(ids).toContain(DOMAIN_BOUNDARY_BYPASS_RULE);
+  expect(ids).toContain(CROSS_DOMAIN_SIDE_EFFECT_RULE);
+  // Both the bare import and the empty-named import count: an empty import
+  // list still runs the imported module for its effects.
+  expect(ids.filter((ruleId) => ruleId === CROSS_DOMAIN_SIDE_EFFECT_RULE)).toHaveLength(2);
+  expect(report.diagnostics.find(({ ruleId }) => ruleId === DOMAIN_CYCLE_RULE)?.message)
+    .toContain(EXPECTED_DOMAIN_CYCLE_PATH);
 });
 
 it("rejects entrypoints outside their domain roots", () => {

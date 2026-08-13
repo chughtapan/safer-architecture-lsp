@@ -77,19 +77,10 @@ export function normalizePath(pathLike: string): string {
 }
 
 function variableStatementName(statement: ts.VariableStatement): string | null {
-  for (const declaration of statement.declarationList.declarations) {
-    const name = declaration.name;
-    return ts.isIdentifier(name) ? name.text : null;
-  }
-  return null;
-}
-
-function nonVariableDeclarationName(statement: ts.Statement): string | null {
-  for (const reader of NON_VARIABLE_DECLARATION_NAME_READERS) {
-    const name = reader(statement);
-    if (name !== undefined) {return name;}
-  }
-  return null;
+  const declaration = statement.declarationList.declarations.at(0);
+  if (declaration === undefined) {return null;}
+  const name = declaration.name;
+  return ts.isIdentifier(name) ? name.text : null;
 }
 
 type DeclarationNameReader = (statement: ts.Statement) => string | null | undefined;
@@ -101,3 +92,11 @@ const NON_VARIABLE_DECLARATION_NAME_READERS: readonly DeclarationNameReader[] = 
   (statement) => ts.isTypeAliasDeclaration(statement) ? statement.name.text : undefined,
   (statement) => ts.isEnumDeclaration(statement) ? statement.name.text : undefined,
 ];
+
+function nonVariableDeclarationName(statement: ts.Statement): string | null {
+  for (const reader of NON_VARIABLE_DECLARATION_NAME_READERS) {
+    const name = reader(statement);
+    if (name !== undefined) {return name;}
+  }
+  return null;
+}

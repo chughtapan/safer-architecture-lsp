@@ -27,14 +27,14 @@ export function parseBackendSpecs(value: unknown): BackendSpec[] {
     throw new ConfigurationError("configuration must be a non-empty array");
   }
 
-  return value.map((entry, position) => {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+  return value.map((entry: unknown, position: number) => {
+    if (!isRecord(entry)) {
       throw new ConfigurationError(`backend ${position} must be an object`);
     }
-    const record = entry as Record<string, unknown>;
+    const record = entry;
     const unknown = Object.keys(record)
       .filter((key) => key !== "cmd" && key !== "args")
-      .sort();
+      .sort(compareStrings);
     if (unknown.length > 0) {
       throw new ConfigurationError(
         `backend ${position} has unsupported fields: ${unknown.join(", ")}`,
@@ -76,4 +76,15 @@ export function readBackendSpecs(configPath: string): BackendSpec[] {
     throw new ConfigurationError(`cannot read ${configPath}: ${detail}`);
   }
   return parseBackendSpecs(parsed);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Reproduces the default `Array.prototype.sort` order for strings, so the
+// field names reported in a message stay in the same order on every host.
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

@@ -9,8 +9,19 @@ import {
   type ArchitectureDiagnostic,
   collectPackageExportEntries,
   type PackageExportEntry,
-  type PackageJson, type ResolvedArchitectureOptions, stripKnownExtension 
+  type PackageJson, type ResolvedArchitectureOptions, stripKnownExtension
 } from "../project/api/index.js";
+
+const testOnlySegments = [
+  "test",
+  "tests",
+  "testing",
+  "test-utils",
+  "test-support",
+  "fixtures",
+  "__fixtures__",
+  "__tests__",
+];
 
 /**
  * Run every manifest-level export check and concatenate their diagnostics.
@@ -178,14 +189,3 @@ function implementationFilePublicEntryDiagnostics(
     ];
   });
 }
-
-const testOnlySegments = [
-  "test",
-  "tests",
-  "testing",
-  "test-utils",
-  "test-support",
-  "fixtures",
-  "__fixtures__",
-  "__tests__",
-];

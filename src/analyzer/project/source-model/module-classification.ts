@@ -46,7 +46,7 @@ export function generatedModule(module: SourceModule): boolean {
  * @returns True when the module exists and is neither test-like nor
  * generated.
  */
-export function resolveProductionModule(module: SourceModule | undefined): module is SourceModule {
+export function resolveProductionModule(module?: SourceModule): module is SourceModule {
   return module !== undefined && !module.isTestLike && !generatedModule(module);
 }
 
@@ -57,7 +57,7 @@ export function resolveProductionModule(module: SourceModule | undefined): modul
  * @param module Result of a graph lookup, possibly a miss.
  * @returns True when the module ships and is not a public entry point.
  */
-export function resolveImplementationModule(module: SourceModule | undefined): module is SourceModule {
+export function resolveImplementationModule(module?: SourceModule): module is SourceModule {
   return resolveProductionModule(module) && !module.isPublic;
 }
 

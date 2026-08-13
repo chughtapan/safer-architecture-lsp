@@ -77,4 +77,4 @@ export const makeDocumentStore = (): Effect.Effect<DocumentStore> =>
       Ref.get(ref).pipe(Effect.map((map) => [...map.keys()]));
 
     return { open, update, close, get, listUris };
-  });
+  }).pipe(Effect.withSpan("makeDocumentStore"));

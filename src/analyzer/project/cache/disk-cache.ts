@@ -29,11 +29,12 @@ const CACHE_VERSION = 4;
 const CACHE_DIR_SEGMENTS = ["node_modules", ".cache", "safer-architecture-lsp"];
 const CACHE_FILE = "report.json";
 
-function discardCacheError(_captured: unknown): null {
-  // Disk cache is best-effort. A malformed file, permission error, or
-  // race against another lint must never block the linter; we fall back
-  // to a fresh analyzer build. The error is captured for future
-  // debugging via Node inspector if needed.
+// Disk cache is best-effort. A malformed file, permission error, or
+// race against another lint must never block the linter; we fall back
+// to a fresh analyzer build. Callers bind the caught error and hand it
+// here, so the overload accepts it and the implementation drops it.
+function discardCacheError(captured: unknown): null;
+function discardCacheError(): null {
   return null;
 }
 
@@ -67,7 +68,11 @@ export function readDiskCache(projectRoot: string): PersistedReport | null {
   const filePath = cacheFilePathFor(projectRoot);
   if (!fs.existsSync(filePath)) {return null;}
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as PersistedReport;
+    const parsed =
+      // This file is written only by `writeDiskCache` below and the version
+      // check that follows rejects any payload from another schema, so the
+      // shape is known here.
+      JSON.parse(fs.readFileSync(filePath, "utf8")) as PersistedReport;
     if (parsed.version !== CACHE_VERSION) {return null;}
     return parsed;
   } catch (error) {
@@ -155,7 +160,8 @@ export function computeFileWatermark(
   // files: edits to any of these change the report even when no .ts
   // file changed, so the watermark must capture them.
   const tsconfigFinder = (root: string): string | undefined =>
-    ts.findConfigFile(root, ts.sys.fileExists, "tsconfig.json") ?? undefined;
+    ts.findConfigFile(root, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json") ??
+    undefined;
   for (const extra of dependencyWatermarks(options, tsconfigFinder)) {
     watermarks.push(extra);
   }
@@ -165,9 +171,10 @@ export function computeFileWatermark(
 
 function enumerateProjectFiles(options: ResolvedArchitectureOptions): readonly string[] {
   const configPath =
-    options.tsconfigPath ?? ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
+    options.tsconfigPath ??
+    ts.findConfigFile(options.projectRoot, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json");
   if (!configPath) {return [];}
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  const configFile = ts.readConfigFile(configPath, (fileName) => ts.sys.readFile(fileName));
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,

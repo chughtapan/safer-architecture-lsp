@@ -86,7 +86,7 @@ export function buildProjectGraph(
   const externalEdges = modules.flatMap((module) => [...module.externalEdges]);
   const exportConsumers = collectExportConsumers(sourceFiles, resolver);
   const publicModules = modules.filter((module) => module.isPublic);
-  const folders = [...new Set(modules.map((module) => module.folder))].sort();
+  const folders = [...new Set(modules.map((module) => module.folder))].sort(compareStrings);
 
   const folderLayerIndex = new Map<string, number | null>(
     folders.map((folder) => [folder, layerIndexFor(folder, options.layers)] as const),
@@ -238,4 +238,10 @@ function countExportedSymbols(sourceFile: ts.SourceFile): number {
     }
     return count + 1;
   }, 0);
+}
+
+// Code-unit order, identical to a bare `sort()` but independent of host locale.
+function compareStrings(left: string, right: string): number {
+  if (left < right) {return -1;}
+  return left > right ? 1 : 0;
 }

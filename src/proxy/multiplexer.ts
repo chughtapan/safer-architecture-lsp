@@ -36,24 +36,24 @@ const SIDECAR_NOTIFICATIONS = new Set([
 ]);
 const FANOUT_REQUESTS = new Set(["initialize", "shutdown"]);
 
-type RpcId = string | number | null;
+type RpcId = string | number;
 
 interface Fanout {
   readonly method: string;
-  readonly identifier: RpcId;
+  readonly identifier: RpcId | null;
   readonly responses: Map<number, Message>;
 }
 
 interface RoutedRequest {
   readonly backendIndex: number;
-  readonly originalId: RpcId;
+  readonly originalId: RpcId | null;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function messageId(message: Message): RpcId {
+function messageId(message: Message): RpcId | null {
   const identifier = message.id;
   if (identifier === null) {return null;}
   if (typeof identifier === "boolean" || (typeof identifier !== "number" && typeof identifier !== "string")) {
@@ -62,12 +62,12 @@ function messageId(message: Message): RpcId {
   return identifier;
 }
 
-function idKey(identifier: RpcId): string {
+function idKey(identifier: RpcId | null): string {
   if (identifier === null) {return "null";}
   return typeof identifier === "number" ? `n:${identifier}` : `s:${identifier}`;
 }
 
-function errorResponse(identifier: RpcId, code: number, message: string): Message {
+function errorResponse(identifier: RpcId | null, code: number, message: string): Message {
   return { jsonrpc: "2.0", id: identifier, error: { code, message } };
 }
 
@@ -88,6 +88,7 @@ function workspaceFolderCapability(response: Message): Record<string, unknown> |
  * server-to-client requests so two backends cannot collide on the same id.
  */
 export class Multiplexer {
+  private readonly serverInfo: ServerInfo;
   private readonly backends: Backend[];
   private clientOut: Writable = new Writable();
   private readonly fanouts = new Map<string, Fanout>();
@@ -99,10 +100,8 @@ export class Multiplexer {
   private clientTail: Promise<void> = Promise.resolve();
   private resolveExit: (code: number) => void = () => undefined;
 
-  constructor(
-    specs: readonly BackendSpec[],
-    private readonly serverInfo: ServerInfo,
-  ) {
+  constructor(specs: readonly BackendSpec[], serverInfo: ServerInfo) {
+    this.serverInfo = serverInfo;
     this.backends = specs.map((spec, index) => new Backend(index, spec));
   }
 
@@ -140,7 +139,7 @@ export class Multiplexer {
   private enqueueClient(message: Message): void {
     this.clientTail = this.clientTail
       .then(() => (this.finished ? undefined : this.handleClient(message)))
-      .catch((error) => { this.onClientFatal(error); });
+      .catch((error: unknown) => { this.onClientFatal(error); });
   }
 
   private activeBackends(): Backend[] {
@@ -274,7 +273,9 @@ export class Multiplexer {
 
   private completeFanout(fanout: Fanout): Message {
     const ordered = this.activeBackends().map(
-      (backend) => fanout.responses.get(backend.index) as Message,
+      (backend) =>
+        // Safe: reached only once every active backend has recorded a response.
+        fanout.responses.get(backend.index) as Message,
     );
     const failure = ordered.find((response) => "error" in response);
     if (failure !== undefined) {return { ...failure, id: fanout.identifier };}

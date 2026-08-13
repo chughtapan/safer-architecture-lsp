@@ -7,69 +7,68 @@
 
 import { Schema } from "effect";
 
-const NonEmptyString = Schema.String.pipe(Schema.minLength(1));
+const nonEmptyString = Schema.String.pipe(Schema.minLength(1));
 
 // Allowance entries: every architectural exception MUST carry a written
 // reason. The act of writing the reason is the architectural decision —
 // the schema enforces it at validation time so reviewers see intent in
 // the config, not just a bare list.
 
-const PublicTypeAllowance = Schema.Struct({
-  package: NonEmptyString.annotations({
+const publicTypeAllowanceSchema = Schema.Struct({
+  package: nonEmptyString.annotations({
     description: "External package whose types are intentionally part of this package's public contract.",
   }),
-  reason: NonEmptyString.annotations({
+  reason: nonEmptyString.annotations({
     description: "Why this package is part of the public contract. Goes into config review and CHANGELOG context.",
   }),
 });
-type PublicTypeAllowance = typeof PublicTypeAllowance.Type;
+type PublicTypeAllowance = typeof publicTypeAllowanceSchema.Type;
 
-const InfrastructureAllowance = Schema.Struct({
-  package: NonEmptyString.annotations({
+const infrastructureAllowanceSchema = Schema.Struct({
+  package: nonEmptyString.annotations({
     description: "Infrastructure package (database client, logger, transport, etc.) whose types should be flagged in public surfaces.",
   }),
-  reason: NonEmptyString.annotations({
+  reason: nonEmptyString.annotations({
     description: "Why this package is on the infrastructure list (not the public contract list).",
   }),
 });
-type InfrastructureAllowance = typeof InfrastructureAllowance.Type;
+type InfrastructureAllowance = typeof infrastructureAllowanceSchema.Type;
 
-const SubpathAllowance = Schema.Struct({
-  subpath: NonEmptyString.annotations({
+const subpathAllowanceSchema = Schema.Struct({
+  subpath: nonEmptyString.annotations({
     description: "package.json subpath that is intentionally part of the public contract (e.g., '.', './cli', './testing').",
   }),
-  reason: NonEmptyString.annotations({
+  reason: nonEmptyString.annotations({
     description: "Why this subpath is public. Documents intent for future maintainers.",
   }),
 });
-type SubpathAllowance = typeof SubpathAllowance.Type;
+type SubpathAllowance = typeof subpathAllowanceSchema.Type;
 
-const SharedFolderAllowance = Schema.Struct({
-  folder: NonEmptyString.annotations({
+const sharedFolderAllowanceSchema = Schema.Struct({
+  folder: nonEmptyString.annotations({
     description: "Folder name treated as a shared kernel; sibling/lower-level folders may import from it without crossing a boundary.",
   }),
-  reason: NonEmptyString.annotations({
+  reason: nonEmptyString.annotations({
     description: "Why this folder is a shared kernel rather than a domain.",
   }),
 });
-type SharedFolderAllowance = typeof SharedFolderAllowance.Type;
+type SharedFolderAllowance = typeof sharedFolderAllowanceSchema.Type;
 
-const FacadeFileAllowance = Schema.Struct({
-  file: NonEmptyString.annotations({
+const facadeFileAllowanceSchema = Schema.Struct({
+  file: nonEmptyString.annotations({
     description: "Non-index facade file path relative to src (for example, 'rules/registry.ts'). index.ts files are already treated as facades.",
   }),
-  reason: NonEmptyString.annotations({
+  reason: nonEmptyString.annotations({
     description: "Why this non-index file is an intentional facade. Documents the boundary for reviewers.",
   }),
 });
-type FacadeFileAllowance = typeof FacadeFileAllowance.Type;
+type FacadeFileAllowance = typeof facadeFileAllowanceSchema.Type;
 
-const PackageRuntime = Schema.Literal("browser", "node", "universal");
-type PackageRuntime = typeof PackageRuntime.Type;
+const packageRuntimeSchema = Schema.Literal("browser", "node", "universal");
 
-const Ratio = Schema.Number.pipe(Schema.between(0, 1));
-const NonNegativeInt = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0));
-const PositiveInt = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1));
+const ratio = Schema.Number.pipe(Schema.between(0, 1));
+const nonNegativeInt = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0));
+const positiveInt = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1));
 
 // Defaults — these populate when the option is omitted entirely. Note that
 // allowance arrays default to []; consumers MUST add explicit entries with
@@ -78,14 +77,14 @@ const PositiveInt = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo
 // stay as bare strings because adding entries makes the rule STRICTER, not
 // more permissive. There is no architectural exception to acknowledge.
 
-const LayerDefinition = Schema.Struct({
-  name: NonEmptyString.annotations({
+const layerDefinitionSchema = Schema.Struct({
+  name: nonEmptyString.annotations({
     description: "Layer name (entrypoint, app, domain, adapters, shared, etc.).",
   }),
-  folders: Schema.Array(NonEmptyString).annotations({
+  folders: Schema.Array(nonEmptyString).annotations({
     description: "Folder paths relative to the project root that belong to this layer. Longest-prefix match wins; ties resolve to the lower (earlier) layer index.",
   }),
-  reason: NonEmptyString.annotations({
+  reason: nonEmptyString.annotations({
     description: "Why these folders form a layer. Documents the architectural intent.",
   }),
 });
@@ -93,200 +92,200 @@ const LayerDefinition = Schema.Struct({
  * One named layer and the folders it claims. Folders may nest across
  * layers, so the longest matching prefix decides which layer a file is in.
  */
-export type LayerDefinition = typeof LayerDefinition.Type;
+export type LayerDefinition = typeof layerDefinitionSchema.Type;
 
-const DomainDefinition = Schema.Struct({
-  name: NonEmptyString.annotations({ description: "Stable domain identifier used in diagnostics." }),
-  roots: Schema.NonEmptyArray(NonEmptyString).annotations({
+const domainDefinitionSchema = Schema.Struct({
+  name: nonEmptyString.annotations({ description: "Stable domain identifier used in diagnostics." }),
+  roots: Schema.NonEmptyArray(nonEmptyString).annotations({
     description: "Project-relative file or directory roots whose production modules belong to this domain.",
   }),
-  entrypoints: Schema.NonEmptyArray(NonEmptyString).annotations({
+  entrypoints: Schema.NonEmptyArray(nonEmptyString).annotations({
     description: "Project-relative public boundary paths other domains may import.",
   }),
-  reason: NonEmptyString.annotations({ description: "Why this domain boundary exists." }),
+  reason: nonEmptyString.annotations({ description: "Why this domain boundary exists." }),
 });
 /**
  * One bounded domain: the roots whose production modules belong to it, and
  * the narrower set of paths inside those roots that other domains may
  * import. Anything else under the roots is internal to the domain.
  */
-export type DomainDefinition = typeof DomainDefinition.Type;
+export type DomainDefinition = typeof domainDefinitionSchema.Type;
 
-const DomainOwnership = Schema.Struct({
-  path: NonEmptyString.annotations({ description: "Project-relative file or directory path." }),
-  domain: NonEmptyString.annotations({ description: "Domain that explicitly owns this path." }),
-  reason: NonEmptyString.annotations({ description: "Why inferred root ownership is overridden." }),
+const domainOwnershipSchema = Schema.Struct({
+  path: nonEmptyString.annotations({ description: "Project-relative file or directory path." }),
+  domain: nonEmptyString.annotations({ description: "Domain that explicitly owns this path." }),
+  reason: nonEmptyString.annotations({ description: "Why inferred root ownership is overridden." }),
 });
 /**
  * An explicit assignment of one path to one domain, overriding the
  * ownership that would otherwise be inferred from the domain roots.
  */
-export type DomainOwnership = typeof DomainOwnership.Type;
+export type DomainOwnership = typeof domainOwnershipSchema.Type;
 
-const CompositionRoot = Schema.Struct({
-  path: NonEmptyString.annotations({
+const compositionRootSchema = Schema.Struct({
+  path: nonEmptyString.annotations({
     description: "Project-relative file or directory allowed to wire multiple domains together.",
   }),
-  reason: NonEmptyString.annotations({ description: "Why dependency composition belongs at this edge." }),
+  reason: nonEmptyString.annotations({ description: "Why dependency composition belongs at this edge." }),
 });
 /**
  * A path allowed to depend on several domains at once. Wiring domains
  * together is a boundary violation everywhere else, so it is named here.
  */
-export type CompositionRoot = typeof CompositionRoot.Type;
+export type CompositionRoot = typeof compositionRootSchema.Type;
 
-const FolderChildLimitOverride = Schema.Struct({
-  folder: NonEmptyString.annotations({
+const folderChildLimitOverrideSchema = Schema.Struct({
+  folder: nonEmptyString.annotations({
     description: "Folder path relative to src, or '.' for the source root.",
   }),
-  maxChildren: Schema.optional(PositiveInt).annotations({
+  maxChildren: Schema.optional(positiveInt).annotations({
     description: "Maximum direct production/semantic children allowed for this folder.",
   }),
-  maxChildrenIncludingTests: Schema.optional(PositiveInt).annotations({
+  maxChildrenIncludingTests: Schema.optional(positiveInt).annotations({
     description: "Maximum direct children allowed for this folder when test children are included.",
   }),
-  maxUnpairedTestChildren: Schema.optional(NonNegativeInt).annotations({
+  maxUnpairedTestChildren: Schema.optional(nonNegativeInt).annotations({
     description: "Maximum direct unpaired test children allowed for this folder.",
   }),
-  reason: NonEmptyString.annotations({
+  reason: nonEmptyString.annotations({
     description: "Why this folder has a different direct-child budget.",
   }),
 });
-type FolderChildLimitOverride = typeof FolderChildLimitOverride.Type;
+type FolderChildLimitOverride = typeof folderChildLimitOverrideSchema.Type;
 
-const ArchitectureOptionsSchema = Schema.Struct({
-  projectRoot: Schema.optional(NonEmptyString),
-  tsconfigPath: Schema.optional(NonEmptyString),
+const architectureOptionsSchema = Schema.Struct({
+  projectRoot: Schema.optional(nonEmptyString),
+  tsconfigPath: Schema.optional(nonEmptyString),
 
   // Inventory barrel thresholds.
-  minExportedSiblingModules: PositiveInt.pipe(
+  minExportedSiblingModules: positiveInt.pipe(
     Schema.optionalWith({ default: () => 4 }),
   ),
-  maxExportedSiblingRatio: Ratio.pipe(
+  maxExportedSiblingRatio: ratio.pipe(
     Schema.optionalWith({ default: () => 0.6 }),
   ),
   countTypeOnlyExports: Schema.Boolean.pipe(
     Schema.optionalWith({ default: () => true }),
   ),
 
-  allowedPublicSubpaths: Schema.Array(SubpathAllowance).pipe(
+  allowedPublicSubpaths: Schema.Array(subpathAllowanceSchema).pipe(
     Schema.optionalWith({ default: (): readonly SubpathAllowance[] => [] }),
   ),
-  allowedTestPublicSubpaths: Schema.Array(SubpathAllowance).pipe(
+  allowedTestPublicSubpaths: Schema.Array(subpathAllowanceSchema).pipe(
     Schema.optionalWith({ default: (): readonly SubpathAllowance[] => [] }),
   ),
 
-  forbiddenSubpathSegments: Schema.Array(NonEmptyString).pipe(
+  forbiddenSubpathSegments: Schema.Array(nonEmptyString).pipe(
     Schema.optionalWith({ default: (): readonly string[] => [] }),
   ),
-  implementationPathSegments: Schema.Array(NonEmptyString).pipe(
+  implementationPathSegments: Schema.Array(nonEmptyString).pipe(
     Schema.optionalWith({ default: (): readonly string[] => [] }),
   ),
 
   // Public surface caps.
-  maxSubpathExports: NonNegativeInt.pipe(
+  maxSubpathExports: nonNegativeInt.pipe(
     Schema.optionalWith({ default: () => 5 }),
   ),
-  maxWildcardExports: NonNegativeInt.pipe(
+  maxWildcardExports: nonNegativeInt.pipe(
     Schema.optionalWith({ default: () => 0 }),
   ),
-  maxPublicExports: PositiveInt.pipe(
+  maxPublicExports: positiveInt.pipe(
     Schema.optionalWith({ default: () => 20 }),
   ),
-  maxPublicReexports: NonNegativeInt.pipe(
+  maxPublicReexports: nonNegativeInt.pipe(
     Schema.optionalWith({ default: () => 12 }),
   ),
-  minPublicFacadeModules: PositiveInt.pipe(
+  minPublicFacadeModules: positiveInt.pipe(
     Schema.optionalWith({ default: () => 6 }),
   ),
 
   // Folder graph thresholds.
-  minPackageMeshFolders: PositiveInt.pipe(
+  minPackageMeshFolders: positiveInt.pipe(
     Schema.optionalWith({ default: () => 6 }),
   ),
-  maxFolderEdgeDensity: Ratio.pipe(
+  maxFolderEdgeDensity: ratio.pipe(
     Schema.optionalWith({ default: () => 0.35 }),
   ),
-  maxFolderCycles: NonNegativeInt.pipe(
+  maxFolderCycles: nonNegativeInt.pipe(
     Schema.optionalWith({ default: () => 0 }),
   ),
-  maxFolderChildren: PositiveInt.pipe(
+  maxFolderChildren: positiveInt.pipe(
     Schema.optionalWith({ default: () => 10 }),
   ),
-  maxFolderChildrenIncludingTests: PositiveInt.pipe(
+  maxFolderChildrenIncludingTests: positiveInt.pipe(
     Schema.optionalWith({ default: () => 20 }),
   ),
-  maxUnpairedTestChildren: NonNegativeInt.pipe(
+  maxUnpairedTestChildren: nonNegativeInt.pipe(
     Schema.optionalWith({ default: () => 20 }),
   ),
-  minFolderReadmeChildren: PositiveInt.pipe(
+  minFolderReadmeChildren: positiveInt.pipe(
     Schema.optionalWith({ default: () => 4 }),
   ),
-  folderReadmeFileNames: Schema.Array(NonEmptyString).pipe(
+  folderReadmeFileNames: Schema.Array(nonEmptyString).pipe(
     Schema.optionalWith({ default: (): readonly string[] => ["README.md"] }),
   ),
-  maxFolderImportDistance: PositiveInt.pipe(
+  maxFolderImportDistance: positiveInt.pipe(
     Schema.optionalWith({ default: () => 4 }),
   ),
-  folderChildCountOverrides: Schema.Array(FolderChildLimitOverride).pipe(
+  folderChildCountOverrides: Schema.Array(folderChildLimitOverrideSchema).pipe(
     Schema.optionalWith({ default: (): readonly FolderChildLimitOverride[] => [] }),
   ),
 
   // Boundary-shape heuristics. These are sample-size guardrails; topology
   // remains the primary signal.
-  minExplicitApiConcreteFiles: PositiveInt.pipe(
+  minExplicitApiConcreteFiles: positiveInt.pipe(
     Schema.optionalWith({ default: () => 2 }),
   ),
-  minImplicitBoundaryIncomingFiles: PositiveInt.pipe(
+  minImplicitBoundaryIncomingFiles: positiveInt.pipe(
     Schema.optionalWith({ default: () => 2 }),
   ),
-  minImplicitBoundaryOutgoingFiles: PositiveInt.pipe(
+  minImplicitBoundaryOutgoingFiles: positiveInt.pipe(
     Schema.optionalWith({ default: () => 2 }),
   ),
-  minImplicitBoundaryExports: PositiveInt.pipe(
+  minImplicitBoundaryExports: positiveInt.pipe(
     Schema.optionalWith({ default: () => 2 }),
   ),
-  minSharedKernelExports: PositiveInt.pipe(
+  minSharedKernelExports: positiveInt.pipe(
     Schema.optionalWith({ default: () => 6 }),
   ),
-  minSharedKernelConsumers: PositiveInt.pipe(
+  minSharedKernelConsumers: positiveInt.pipe(
     Schema.optionalWith({ default: () => 4 }),
   ),
-  maxSharedKernelMedianOverlap: Ratio.pipe(
+  maxSharedKernelMedianOverlap: ratio.pipe(
     Schema.optionalWith({ default: () => 0.25 }),
   ),
 
-  sharedFolderNames: Schema.Array(SharedFolderAllowance).pipe(
+  sharedFolderNames: Schema.Array(sharedFolderAllowanceSchema).pipe(
     Schema.optionalWith({ default: (): readonly SharedFolderAllowance[] => [] }),
   ),
 
-  facadeFiles: Schema.Array(FacadeFileAllowance).pipe(
+  facadeFiles: Schema.Array(facadeFileAllowanceSchema).pipe(
     Schema.optionalWith({ default: (): readonly FacadeFileAllowance[] => [] }),
   ),
 
-  publicTypePackages: Schema.Array(PublicTypeAllowance).pipe(
+  publicTypePackages: Schema.Array(publicTypeAllowanceSchema).pipe(
     Schema.optionalWith({ default: (): readonly PublicTypeAllowance[] => [] }),
   ),
 
-  infrastructureTypePackages: Schema.Array(InfrastructureAllowance).pipe(
+  infrastructureTypePackages: Schema.Array(infrastructureAllowanceSchema).pipe(
     Schema.optionalWith({ default: (): readonly InfrastructureAllowance[] => [] }),
   ),
 
-  layers: Schema.Array(LayerDefinition).pipe(
+  layers: Schema.Array(layerDefinitionSchema).pipe(
     Schema.optionalWith({ default: (): readonly LayerDefinition[] => [] }),
   ),
 
-  domains: Schema.Array(DomainDefinition).pipe(
+  domains: Schema.Array(domainDefinitionSchema).pipe(
     Schema.optionalWith({ default: (): readonly DomainDefinition[] => [] }),
   ),
-  domainOwnership: Schema.Array(DomainOwnership).pipe(
+  domainOwnership: Schema.Array(domainOwnershipSchema).pipe(
     Schema.optionalWith({ default: (): readonly DomainOwnership[] => [] }),
   ),
-  compositionRoots: Schema.Array(CompositionRoot).pipe(
+  compositionRoots: Schema.Array(compositionRootSchema).pipe(
     Schema.optionalWith({ default: (): readonly CompositionRoot[] => [] }),
   ),
 
-  packageRuntime: PackageRuntime.pipe(
+  packageRuntime: packageRuntimeSchema.pipe(
     Schema.optionalWith({ default: () => "universal" as const }),
   ),
 
@@ -300,14 +299,14 @@ const ArchitectureOptionsSchema = Schema.Struct({
  * Options as a user writes them in an ESLint config, where every threshold
  * and allowance array may be left out.
  */
-export type ArchitectureOptionsInput = typeof ArchitectureOptionsSchema.Encoded;
+export type ArchitectureOptionsInput = typeof architectureOptionsSchema.Encoded;
 
 /**
  * Options as the analyzer reads them, with defaults filled in so every
  * threshold has a value and every allowance array is present but possibly
  * empty.
  */
-export type ArchitectureOptions = typeof ArchitectureOptionsSchema.Type;
+export type ArchitectureOptions = typeof architectureOptionsSchema.Type;
 
 /**
  * Check raw options against the schema without throwing, so the caller
@@ -317,5 +316,5 @@ export type ArchitectureOptions = typeof ArchitectureOptionsSchema.Type;
  * field that failed on the left.
  */
 export function decodeArchitectureOptions(raw: unknown) {
-  return Schema.decodeUnknownEither(ArchitectureOptionsSchema)(raw);
+  return Schema.decodeUnknownEither(architectureOptionsSchema)(raw);
 }

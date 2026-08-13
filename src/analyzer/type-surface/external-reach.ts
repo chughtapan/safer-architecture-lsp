@@ -95,14 +95,7 @@ function markReachesExternal(
   projectFiles: readonly ts.SourceFile[],
   scanned: ReadonlyMap<ts.SourceFile, FileReach>,
 ): ReadonlySet<ts.SourceFile> {
-  const importers = new Map<ts.SourceFile, ts.SourceFile[]>();
-  for (const file of projectFiles) {
-    for (const target of scanned.get(file)?.edges ?? []) {
-      const list = importers.get(target);
-      if (list) {list.push(file);}
-      else {importers.set(target, [file]);}
-    }
-  }
+  const importers = importersByTarget(projectFiles, scanned);
 
   const marked = new Set<ts.SourceFile>();
   const queue: ts.SourceFile[] = [];
@@ -113,7 +106,10 @@ function markReachesExternal(
     }
   }
   while (queue.length > 0) {
-    const target = queue.pop() as ts.SourceFile;
+    const target =
+      // The loop runs only while the queue is non-empty, so this pop is
+      // guaranteed to return a file.
+      queue.pop() as ts.SourceFile;
     for (const importer of importers.get(target) ?? []) {
       if (marked.has(importer)) {continue;}
       marked.add(importer);
@@ -121,6 +117,27 @@ function markReachesExternal(
     }
   }
   return marked;
+}
+
+/**
+ * Invert the package-local import edges into a reverse index.
+ * @param projectFiles Domain the index is built over.
+ * @param scanned Per-file package-local import targets.
+ * @returns For each file, the files that import it, in project-file order.
+ */
+function importersByTarget(
+  projectFiles: readonly ts.SourceFile[],
+  scanned: ReadonlyMap<ts.SourceFile, FileReach>,
+): ReadonlyMap<ts.SourceFile, readonly ts.SourceFile[]> {
+  const importers = new Map<ts.SourceFile, ts.SourceFile[]>();
+  for (const file of projectFiles) {
+    for (const target of scanned.get(file)?.edges ?? []) {
+      const list = importers.get(target);
+      if (list) {list.push(file);}
+      else {importers.set(target, [file]);}
+    }
+  }
+  return importers;
 }
 
 /**
@@ -167,22 +184,24 @@ function statementsContainGlobalAugmentation(
   for (const statement of statements) {
     if (ts.isNamespaceExportDeclaration(statement)) {return true;}
     if (!ts.isModuleDeclaration(statement)) {continue;}
-    if ((statement.flags & ts.NodeFlags.GlobalAugmentation) !== 0) {return true;}
-
-    let body = statement.body;
-    while (body && ts.isModuleDeclaration(body)) {
-      if ((body.flags & ts.NodeFlags.GlobalAugmentation) !== 0) {return true;}
-      body = body.body;
-    }
-    if (
-      body &&
-      ts.isModuleBlock(body) &&
-      statementsContainGlobalAugmentation(body.statements)
-    ) {
-      return true;
-    }
+    if (moduleContainsGlobalAugmentation(statement)) {return true;}
   }
   return false;
+}
+
+function moduleContainsGlobalAugmentation(statement: ts.ModuleDeclaration): boolean {
+  if ((statement.flags & ts.NodeFlags.GlobalAugmentation) !== 0) {return true;}
+
+  let body = statement.body;
+  while (body && ts.isModuleDeclaration(body)) {
+    if ((body.flags & ts.NodeFlags.GlobalAugmentation) !== 0) {return true;}
+    body = body.body;
+  }
+  return (
+    body !== undefined &&
+    ts.isModuleBlock(body) &&
+    statementsContainGlobalAugmentation(body.statements)
+  );
 }
 
 function graphFileReach(
@@ -192,10 +211,31 @@ function graphFileReach(
   checker: ts.TypeChecker,
   externalPackageForSpecifier: (specifier: string) => string | null,
 ): FileReach {
-  const edges: ts.SourceFile[] = [];
-  let hasExternal =
+  const statementReach =
     hasNonStatementModuleReference(file) ||
     hasUncertainStatementModuleReference(file, module, checker);
+  const local = localEdgeReach(module, byPath, externalPackageForSpecifier);
+  const external = externalEdgeReach(
+    file,
+    module,
+    byPath,
+    checker,
+    externalPackageForSpecifier,
+  );
+
+  return {
+    hasExternal: statementReach || local.hasExternal || external.hasExternal,
+    edges: [...local.edges, ...external.edges],
+  };
+}
+
+function localEdgeReach(
+  module: SourceModule,
+  byPath: ReadonlyMap<string, ts.SourceFile>,
+  externalPackageForSpecifier: (specifier: string) => string | null,
+): FileReach {
+  const edges: ts.SourceFile[] = [];
+  let hasExternal = false;
 
   for (const edge of module.localEdges) {
     // Classify the raw specifier rather than trusting the graph's generic
@@ -211,6 +251,19 @@ function graphFileReach(
     // closure is uncertain. Force the full semantic walk.
     else {hasExternal = true;}
   }
+
+  return { hasExternal, edges };
+}
+
+function externalEdgeReach(
+  file: ts.SourceFile,
+  module: SourceModule,
+  byPath: ReadonlyMap<string, ts.SourceFile>,
+  checker: ts.TypeChecker,
+  externalPackageForSpecifier: (specifier: string) => string | null,
+): FileReach {
+  const edges: ts.SourceFile[] = [];
+  let hasExternal = false;
 
   for (const edge of module.externalEdges) {
     if (externalPackageForSpecifier(edge.specifier) !== null) {
@@ -290,25 +343,7 @@ function hasNonStatementModuleReference(file: ts.SourceFile): boolean {
       if (found) {return;}
     }
 
-    if (ts.isImportTypeNode(node)) {
-      found = true;
-      return;
-    }
-    if (
-      ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword
-    ) {
-      found = true;
-      return;
-    }
-    if (
-      ts.isImportEqualsDeclaration(node) &&
-      ts.isExternalModuleReference(node.moduleReference)
-    ) {
-      found = true;
-      return;
-    }
-    if (ts.isModuleDeclaration(node) && ts.isStringLiteral(node.name)) {
+    if (namesModuleDirectly(node)) {
       found = true;
       return;
     }
@@ -316,6 +351,24 @@ function hasNonStatementModuleReference(file: ts.SourceFile): boolean {
   };
   visit(file);
   return found;
+}
+
+/**
+ * Whether a single node names a module in a form the canonical graph
+ * carries no edge for: an `import(...)` type, a dynamic import call, an
+ * external `import =` reference, or an ambient module declaration.
+ * @param node Node inspected on its own; children are walked by the caller.
+ * @returns True when the node itself names a module.
+ */
+function namesModuleDirectly(node: ts.Node): boolean {
+  return (
+    ts.isImportTypeNode(node) ||
+    (ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword) ||
+    (ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference)) ||
+    (ts.isModuleDeclaration(node) && ts.isStringLiteral(node.name))
+  );
 }
 
 function isJavaScriptSourceFile(file: ts.SourceFile): boolean {

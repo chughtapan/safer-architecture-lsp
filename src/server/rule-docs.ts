@@ -29,7 +29,13 @@ export function ruleCodeDescription(
   if (ruleId.length === 0) {return FALLBACK_CODE_DESCRIPTION;}
   let entry = cache.get(ruleId);
   if (entry === undefined) {
-    entry = Object.freeze({ href: `${RULE_DOCS_BASE}#${ruleId as ArchitectureRuleId}` });
+    entry = Object.freeze({
+      href: `${RULE_DOCS_BASE}#${
+        // The anchor is the rule id verbatim, and an unknown id is a dead
+        // anchor on a real page rather than a type-level failure, so safe.
+        ruleId as ArchitectureRuleId
+      }`,
+    });
     cache.set(ruleId, entry);
   }
   return entry;

@@ -4,12 +4,14 @@
  * package-local exports never changes which vendor leaks are reported.
  */
 
+import * as fc from "effect/FastCheck";
 import { spawnSync } from "node:child_process";
 import { existsSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
   analyzeResolvedArchitecture,
+  type ArchitectureDiagnosticRuleId,
   resolveArchitectureOptions,
 } from "../src/index.js";
 import { type Fixture, makeFixture } from "./support/fixtures.js";
@@ -23,6 +25,20 @@ afterEach(() => {
 
 const BIN = path.resolve("dist/server/index.js");
 const REPO_NODE_MODULES = path.resolve("node_modules");
+
+/** The rule the import-closure pre-filter must never cause to be missed. */
+const VENDOR_TYPE_LEAK_RULE: ArchitectureDiagnosticRuleId = "no-public-vendor-type-leak";
+
+/** `check` exits 0 only when the run completed and found nothing. */
+const EXIT_CLEAN = 0;
+
+/** Entrypoint counts the shared-walk property sweeps over. */
+const MIN_ENTRYPOINTS = 1;
+const MAX_ENTRYPOINTS = 3;
+
+function byFileName(left: string, right: string): number {
+  return left.localeCompare(right);
+}
 
 const LOCAL_TSCONFIG = JSON.stringify({
   compilerOptions: {
@@ -57,13 +73,17 @@ it("persists a disk cache across `check` invocations and hits it on repeat", () 
   const first = spawnSync(process.execPath, [BIN, "check", fixture.root], {
     encoding: "utf8" as const,
   });
-  expect(first.status).toBe(0);
+  expect(first.status).toBe(EXIT_CLEAN);
+  // The first run must leave the cache behind, or the second run has nothing
+  // to hit and the perf path silently degrades to a full re-analysis.
   expect(existsSync(cacheFile)).toBe(true);
 
   const second = spawnSync(process.execPath, [BIN, "check", fixture.root], {
     encoding: "utf8" as const,
   });
-  expect(second.status).toBe(0);
+  expect(second.status).toBe(EXIT_CLEAN);
+  // A cache hit has to produce byte-identical output: reuse that changes the
+  // report is a correctness bug wearing a performance costume.
   expect(second.stdout).toBe(first.stdout);
 });
 
@@ -77,7 +97,10 @@ it("still flags a public vendor type leak when the pre-filter is active", () => 
   });
   symlinkSync(REPO_NODE_MODULES, path.join(fixture.root, "node_modules"), "dir");
 
-  expect(ruleIdsFor(fixture.root)).toContain("no-public-vendor-type-leak");
+  // `run` returns an Effect type from a public entrypoint while `local/util.ts`
+  // stays package-local: the pre-filter may skip the local file but must still
+  // walk the entrypoint, so the vendor leak has to be reported.
+  expect(ruleIdsFor(fixture.root)).toContain(VENDOR_TYPE_LEAK_RULE);
 });
 
 it("reuses an exported type walk across public entrypoints without dropping findings", () => {
@@ -102,14 +125,14 @@ it("reuses an exported type walk across public entrypoints without dropping find
 
   const diagnostics = analyzeResolvedArchitecture(
     resolveArchitectureOptions({ projectRoot: fixture.root }),
-  ).diagnostics.filter((diagnostic) =>
-    diagnostic.ruleId === "no-public-vendor-type-leak"
-  );
+  ).diagnostics.filter((diagnostic) => diagnostic.ruleId === VENDOR_TYPE_LEAK_RULE);
 
-  expect(diagnostics.map((diagnostic) => path.basename(diagnostic.file)).sort()).toEqual([
-    "index.ts",
-    "secondary.ts",
-  ]);
+  // Both entrypoints re-export the same vendor-typed symbol. Caching the type
+  // walk after the first entrypoint must not swallow the second one's finding,
+  // so each public file is reported on its own.
+  expect(
+    diagnostics.map((diagnostic) => path.basename(diagnostic.file)).sort(byFileName),
+  ).toEqual(["index.ts", "secondary.ts"]);
 });
 
 it("reports no vendor leak for a pure-local public surface", () => {
@@ -120,5 +143,73 @@ it("reports no vendor leak for a pure-local public surface", () => {
       "export interface Shape {\n  readonly n: number;\n  readonly kids: ReadonlyArray<Shape>;\n}\nexport const seed: Shape = { n: 0, kids: [] };\n",
   });
 
-  expect(ruleIdsFor(fixture.root)).not.toContain("no-public-vendor-type-leak");
+  // Nothing on this public surface comes from a package: `Shape` is self-
+  // referential but package-owned, so the pre-filter's skip is a true negative.
+  expect(ruleIdsFor(fixture.root)).not.toContain(VENDOR_TYPE_LEAK_RULE);
 });
+
+/**
+ * The example above pins the shared type walk at exactly two entrypoints. The
+ * invariant is that reuse never drops a finding at any fan-out: however many
+ * public entrypoints re-export the same vendor-typed symbol, every one of them
+ * is reported, so the walk cache can speed the analysis but not shrink it.
+ */
+it("reports every public entrypoint that shares a vendor-typed symbol, at any fan-out", () => {
+  fc.assert(
+    fc.property(fc.integer({ min: MIN_ENTRYPOINTS, max: MAX_ENTRYPOINTS }), (entrypoints) => {
+      const project = makeFixture(sharedVendorTypeProject(entrypoints));
+      symlinkSync(REPO_NODE_MODULES, path.join(project.root, "node_modules"), "dir");
+      try {
+        const leaks = analyzeResolvedArchitecture(
+          resolveArchitectureOptions({ projectRoot: project.root }),
+        ).diagnostics.filter((diagnostic) => diagnostic.ruleId === VENDOR_TYPE_LEAK_RULE);
+        expect(
+          leaks.map((diagnostic) => path.basename(diagnostic.file)).sort(byFileName),
+        ).toEqual(entrypointFileNames(entrypoints));
+      } finally {
+        project.cleanup();
+      }
+    }),
+    { numRuns: 5 },
+  );
+});
+
+/**
+ * Build a package whose public entrypoints all re-export one vendor-typed
+ * function from a shared implementation module.
+ * @param entrypoints How many public entrypoint files to publish.
+ * @returns Fixture files for `makeFixture`.
+ */
+function sharedVendorTypeProject(entrypoints: number): Readonly<Record<string, string>> {
+  const names = entrypointFileNames(entrypoints);
+  const reExport = 'export { run } from "./shared.js";\n';
+  const files: Record<string, string> = {
+    "tsconfig.json": LOCAL_TSCONFIG,
+    "package.json": JSON.stringify({
+      name: "p",
+      exports: Object.fromEntries(
+        names.map((name) => [name === "index.ts" ? "." : `./${path.parse(name).name}`, `./${name}`]),
+      ),
+    }),
+    "shared.ts":
+      'import { Effect } from "effect";\n' +
+      "export function run(): Effect.Effect<number> {\n" +
+      "  return Effect.succeed(1);\n" +
+      "}\n",
+  };
+  for (const name of names) {files[name] = reExport;}
+  return files;
+}
+
+/**
+ * File names of the public entrypoints, in the order `byFileName` sorts them.
+ * @param entrypoints How many entrypoint files the package publishes.
+ * @returns `index.ts` plus one numbered entry file per extra entrypoint.
+ */
+function entrypointFileNames(entrypoints: number): readonly string[] {
+  const names = ["index.ts"];
+  for (let index = 1; index < entrypoints; index += 1) {
+    names.push(`entry${index}.ts`);
+  }
+  return names.sort(byFileName);
+}
