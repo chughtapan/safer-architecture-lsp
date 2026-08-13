@@ -4,9 +4,6 @@
  * checks, and graph type re-exports.
  */
 
-export {
-  buildProjectGraph,
-} from "./project-graph/index.js";
 export type {
   ExportConsumer,
   LocalModuleEdge,
@@ -16,3 +13,6 @@ export type {
 export {
   checkFolderGraph,
 } from "./folder-graph/index.js";
+export {
+  buildProjectGraph,
+} from "./project-graph/index.js";

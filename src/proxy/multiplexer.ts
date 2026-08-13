@@ -12,11 +12,10 @@
  * dropping that sidecar; the same error on the primary is fatal.
  */
 
-import { Writable } from "node:stream";
-import type { Readable } from "node:stream";
-import { Backend, type BackendHandlers } from "./backend.js";
+import { type Readable, Writable  } from "node:stream";
 import type { BackendSpec } from "./config.js";
-import { FrameDecoder, ProtocolError, encodePacket, type Message } from "./framing.js";
+import { Backend, type BackendHandlers } from "./backend.js";
+import { encodePacket, FrameDecoder, type Message, ProtocolError } from "./framing.js";
 import { log } from "./log.js";
 
 export interface ServerInfo {
@@ -55,7 +54,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function messageId(message: Message): RpcId {
   const identifier = message.id;
-  if (identifier === null) return null;
+  if (identifier === null) {return null;}
   if (typeof identifier === "boolean" || (typeof identifier !== "number" && typeof identifier !== "string")) {
     throw new ProtocolError("JSON-RPC id must be a string, number, or null");
   }
@@ -63,7 +62,7 @@ function messageId(message: Message): RpcId {
 }
 
 function idKey(identifier: RpcId): string {
-  if (identifier === null) return "null";
+  if (identifier === null) {return "null";}
   return typeof identifier === "number" ? `n:${identifier}` : `s:${identifier}`;
 }
 
@@ -73,11 +72,11 @@ function errorResponse(identifier: RpcId, code: number, message: string): Messag
 
 function workspaceFolderCapability(response: Message): Record<string, unknown> | null {
   const result = response.result;
-  if (!isObject(result)) return null;
+  if (!isObject(result)) {return null;}
   const capabilities = result.capabilities;
-  if (!isObject(capabilities)) return null;
+  if (!isObject(capabilities)) {return null;}
   const workspace = capabilities.workspace;
-  if (!isObject(workspace)) return null;
+  if (!isObject(workspace)) {return null;}
   const folders = workspace.workspaceFolders;
   return isObject(folders) ? { ...folders } : null;
 }
@@ -106,24 +105,24 @@ export class Multiplexer {
     return new Promise<number>((resolve) => {
       this.resolveExit = resolve;
       const handlers: BackendHandlers = {
-        onMessage: (index, message) => this.handleBackend(index, message),
-        onClosed: (index) => this.onBackendClosed(index),
-        onError: (index, detail) => this.onBackendError(index, detail),
+        onMessage: (index, message) => { this.handleBackend(index, message); },
+        onClosed: (index) => { this.onBackendClosed(index); },
+        onError: (index, detail) => { this.onBackendError(index, detail); },
       };
-      for (const backend of this.backends) backend.start(handlers);
+      for (const backend of this.backends) {backend.start(handlers);}
 
       const decoder = new FrameDecoder("client");
       clientIn.on("data", (chunk: Buffer) => {
-        if (this.finished) return;
+        if (this.finished) {return;}
         decoder.push(chunk);
         try {
-          for (const message of decoder.drain()) this.enqueueClient(message);
+          for (const message of decoder.drain()) {this.enqueueClient(message);}
         } catch (error) {
           this.onClientFatal(error);
         }
       });
-      clientIn.on("end", () => this.onClientEnd());
-      clientIn.on("error", (error) => this.onClientFatal(error));
+      clientIn.on("end", () => { this.onClientEnd(); });
+      clientIn.on("error", (error) => { this.onClientFatal(error); });
     });
   }
 
@@ -135,7 +134,7 @@ export class Multiplexer {
   private enqueueClient(message: Message): void {
     this.clientTail = this.clientTail
       .then(() => (this.finished ? undefined : this.handleClient(message)))
-      .catch((error) => this.onClientFatal(error));
+      .catch((error) => { this.onClientFatal(error); });
   }
 
   private activeBackends(): Backend[] {
@@ -147,7 +146,7 @@ export class Multiplexer {
   }
 
   private async broadcast(message: Message): Promise<void> {
-    for (const backend of this.activeBackends()) await backend.send(message);
+    for (const backend of this.activeBackends()) {await backend.send(message);}
   }
 
   private async handleClient(message: Message): Promise<void> {
@@ -156,7 +155,7 @@ export class Multiplexer {
       return;
     }
     const method = message.method;
-    if (typeof method !== "string") throw new ProtocolError("JSON-RPC method must be a string");
+    if (typeof method !== "string") {throw new ProtocolError("JSON-RPC method must be a string");}
 
     if (method === "exit") {
       await this.broadcast(message);
@@ -192,7 +191,7 @@ export class Multiplexer {
   }
 
   private async routeClientResponse(message: Message): Promise<void> {
-    if (!("id" in message)) throw new ProtocolError("JSON-RPC response is missing id");
+    if (!("id" in message)) {throw new ProtocolError("JSON-RPC response is missing id");}
     const exposedId = messageId(message);
     const key = typeof exposedId === "string" ? exposedId : idKey(exposedId);
     const route = this.clientRequests.get(key);
@@ -213,7 +212,7 @@ export class Multiplexer {
 
   private handleBackend(index: number, message: Message): void {
     const backend = this.backends[index];
-    if (backend.dropped) return;
+    if (backend.dropped) {return;}
     if (!("method" in message)) {
       this.handleBackendResponse(backend, message);
       return;
@@ -239,7 +238,7 @@ export class Multiplexer {
   }
 
   private handleBackendResponse(backend: Backend, message: Message): void {
-    if (!("id" in message)) throw new ProtocolError(`${backend.label}: JSON-RPC response is missing id`);
+    if (!("id" in message)) {throw new ProtocolError(`${backend.label}: JSON-RPC response is missing id`);}
     const identifier = messageId(message);
     const key = idKey(identifier);
     const fanout = this.fanouts.get(key);
@@ -261,7 +260,7 @@ export class Multiplexer {
 
   private maybeCompleteFanout(key: string, fanout: Fanout): void {
     const active = this.activeBackends();
-    if (!active.every((backend) => fanout.responses.has(backend.index))) return;
+    if (!active.every((backend) => fanout.responses.has(backend.index))) {return;}
     this.fanouts.delete(key);
     this.sendClient(this.completeFanout(fanout));
     log(`all -> client: ${fanout.method} response`);
@@ -272,10 +271,10 @@ export class Multiplexer {
       (backend) => fanout.responses.get(backend.index) as Message,
     );
     const failure = ordered.find((response) => "error" in response);
-    if (failure !== undefined) return { ...failure, id: fanout.identifier };
+    if (failure !== undefined) {return { ...failure, id: fanout.identifier };}
 
     const primary: Message = { ...ordered[0], id: fanout.identifier };
-    if (fanout.method !== "initialize") return primary;
+    if (fanout.method !== "initialize") {return primary;}
 
     const result = primary.result;
     if (!isObject(result)) {
@@ -310,7 +309,7 @@ export class Multiplexer {
 
   private publishMergedDiagnostics(backend: Backend, message: Message): void {
     const params = message.params;
-    if (!isObject(params)) throw new ProtocolError(`${backend.label}: diagnostics params must be an object`);
+    if (!isObject(params)) {throw new ProtocolError(`${backend.label}: diagnostics params must be an object`);}
     const uri = params.uri;
     const diagnostics = params.diagnostics;
     if (typeof uri !== "string" || !Array.isArray(diagnostics)) {
@@ -325,7 +324,7 @@ export class Multiplexer {
     const combined: unknown[] = [];
     for (const backend of this.activeBackends()) {
       const diagnostics = backend.diagnostics.get(uri);
-      if (diagnostics) combined.push(...diagnostics);
+      if (diagnostics) {combined.push(...diagnostics);}
     }
     const baseParams = isObject(base.params) ? base.params : {};
     return { ...base, params: { ...baseParams, uri, diagnostics: combined } };
@@ -350,7 +349,7 @@ export class Multiplexer {
     if (!isObject(params) || !("id" in params)) {
       throw new ProtocolError(`${backend.label}: cancellation is missing a request id`);
     }
-    const originalId = messageId(params as Message);
+    const originalId = messageId(params);
     const exposedId = this.backendRequestIds.get(`${backend.index}:${idKey(originalId)}`);
     if (exposedId === undefined) {
       log(`dropping cancellation for unknown request from ${backend.label}`);
@@ -360,11 +359,11 @@ export class Multiplexer {
   }
 
   private onBackendClosed(index: number): void {
-    if (this.finished) return;
+    if (this.finished) {return;}
     const backend = this.backends[index];
-    if (backend.dropped) return;
+    if (backend.dropped) {return;}
     if (backend.isPrimary) {
-      if (!this.clientExited) log(`primary exited unexpectedly: ${backend.label}`);
+      if (!this.clientExited) {log(`primary exited unexpectedly: ${backend.label}`);}
       this.finish(backend.exitCode);
       return;
     }
@@ -373,10 +372,10 @@ export class Multiplexer {
   }
 
   private onBackendError(index: number, detail: string): void {
-    if (this.finished) return;
+    if (this.finished) {return;}
     log(detail);
     const backend = this.backends[index];
-    if (backend.dropped) return;
+    if (backend.dropped) {return;}
     if (backend.isPrimary) {
       this.finish(backend.exited ? backend.exitCode : 1);
       return;
@@ -385,7 +384,7 @@ export class Multiplexer {
   }
 
   private dropBackend(backend: Backend): void {
-    if (backend.dropped) return;
+    if (backend.dropped) {return;}
     backend.dropped = true;
     backend.closeStdin();
     backend.terminate();
@@ -396,42 +395,42 @@ export class Multiplexer {
         this.mergedDiagnostics(uri, { jsonrpc: "2.0", method: "textDocument/publishDiagnostics" }),
       );
     }
-    for (const [key, fanout] of [...this.fanouts]) this.maybeCompleteFanout(key, fanout);
+    for (const [key, fanout] of [...this.fanouts]) {this.maybeCompleteFanout(key, fanout);}
   }
 
   private onClientEnd(): void {
-    if (this.finished) return;
-    void this.clientTail.then(() => this.finish(0));
+    if (this.finished) {return;}
+    void this.clientTail.then(() => { this.finish(0); });
   }
 
   private onClientFatal(error: unknown): void {
-    if (this.finished) return;
+    if (this.finished) {return;}
     log(error instanceof Error ? error.message : String(error));
     this.finish(1);
   }
 
   private finish(code: number): void {
-    if (this.finished) return;
+    if (this.finished) {return;}
     this.finished = true;
-    void this.stopBackends().then(() => this.resolveExit(code));
+    void this.stopBackends().then(() => { this.resolveExit(code); });
   }
 
   private async stopBackends(): Promise<void> {
-    for (const backend of this.backends) backend.closeStdin();
+    for (const backend of this.backends) {backend.closeStdin();}
     const pending = this.backends.filter((backend) => !backend.exited);
     await this.waitFor(pending, 750);
 
     const afterClose = pending.filter((backend) => !backend.exited);
-    for (const backend of afterClose) backend.terminate();
+    for (const backend of afterClose) {backend.terminate();}
     await this.waitFor(afterClose, 750);
 
     const afterTerm = afterClose.filter((backend) => !backend.exited);
-    for (const backend of afterTerm) backend.kill();
+    for (const backend of afterTerm) {backend.kill();}
     await Promise.all(afterTerm.map((backend) => backend.waitExit()));
   }
 
   private waitFor(backends: Backend[], ms: number): Promise<void> {
-    if (backends.length === 0) return Promise.resolve();
+    if (backends.length === 0) {return Promise.resolve();}
     const settled = Promise.all(backends.map((backend) => backend.waitExit())).then(() => undefined);
     const timeout = new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, ms);

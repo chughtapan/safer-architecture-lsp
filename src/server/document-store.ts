@@ -51,7 +51,7 @@ export const makeDocumentStore = (): Effect.Effect<DocumentStore> =>
     ): Effect.Effect<void> =>
       Ref.update(ref, (map) => {
         const existing = map.get(uri);
-        if (existing === undefined) return map;
+        if (existing === undefined) {return map;}
         const next = new Map(map);
         next.set(uri, { ...existing, version, text });
         return next;

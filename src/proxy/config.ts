@@ -41,7 +41,7 @@ export function parseBackendSpecs(value: unknown): BackendSpec[] {
     if (!Array.isArray(args) || !args.every((argument) => typeof argument === "string")) {
       throw new ConfigurationError(`backend ${position} args must be an array of strings`);
     }
-    return { argv: [command, ...(args as string[])] };
+    return { argv: [command, ...(args)] };
   });
 }
 

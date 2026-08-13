@@ -5,31 +5,17 @@
  */
 
 export {
-  resolveArchitectureOptions,
   type ArchitectureOptionsInput,
+  resolveArchitectureOptions,
 } from "../config.js";
-export {
-  SOURCE_EXTENSIONS,
-  candidateFileNames,
-  stripKnownExtension,
-} from "../source-paths.js";
-export {
-  createProgram,
-  findPackageReportFile,
-  programHealth,
-  projectSourceFiles,
-  publicApiSourceFiles,
-} from "../source-files.js";
-export { collectPackageExportEntries } from "../package-exports/index.js";
-export { emptyPackageJson, readPackageJson } from "../package-json.js";
 export { uniqueDiagnostics } from "../diagnostics/index.js";
 export type {
-  ArchitectureDiagnostic,
   ArchitectureAnalysisSnapshot,
+  ArchitectureDiagnostic,
   ArchitectureDiagnosticRuleId,
   ArchitectureReport,
-  ArchitectureWaiver,
   ArchitectureSeverity,
+  ArchitectureWaiver,
   CompositionRoot,
   DomainDefinition,
   DomainOwnership,
@@ -38,3 +24,17 @@ export type {
   PackageJson,
   ResolvedArchitectureOptions,
 } from "../diagnostics/index.js";
+export { collectPackageExportEntries } from "../package-exports/index.js";
+export { emptyPackageJson, readPackageJson } from "../package-json.js";
+export {
+  createProgram,
+  findPackageReportFile,
+  programHealth,
+  projectSourceFiles,
+  publicApiSourceFiles,
+} from "../source-files.js";
+export {
+  candidateFileNames,
+  SOURCE_EXTENSIONS,
+  stripKnownExtension,
+} from "../source-paths.js";

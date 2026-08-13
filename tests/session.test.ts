@@ -5,12 +5,12 @@
  * hot-reload change the published result — the 2am-Friday test.
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
-import { makeFixture, type Fixture } from "./support/fixtures.js";
+import { type Fixture, makeFixture } from "./support/fixtures.js";
 
 const BIN = path.resolve("dist/server/index.js");
 
@@ -35,7 +35,7 @@ function frame(message: object): Buffer {
 interface LspMessage {
   readonly method?: string;
   readonly id?: number;
-  readonly params?: { uri?: string; diagnostics?: readonly { code?: unknown }[] };
+  readonly params?: { uri?: string; diagnostics?: ReadonlyArray<{ code?: unknown }> };
 }
 
 /** Incremental Content-Length decoder over the child's stdout. */
@@ -47,13 +47,13 @@ class MessageCollector {
     this.#buffer = Buffer.concat([this.#buffer, chunk]);
     for (;;) {
       const headerEnd = this.#buffer.indexOf("\r\n\r\n");
-      if (headerEnd === -1) return;
+      if (headerEnd === -1) {return;}
       const header = this.#buffer.subarray(0, headerEnd).toString("ascii");
-      const match = header.match(/Content-Length: (\d+)/i);
-      if (!match) throw new Error(`bad LSP header: ${header}`);
+      const match = /Content-Length: (\d+)/i.exec(header);
+      if (!match) {throw new Error(`bad LSP header: ${header}`);}
       const length = Number(match[1]);
       const bodyStart = headerEnd + 4;
-      if (this.#buffer.length < bodyStart + length) return;
+      if (this.#buffer.length < bodyStart + length) {return;}
       const body = this.#buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
       this.messages.push(JSON.parse(body) as LspMessage);
       this.#buffer = this.#buffer.subarray(bodyStart + length);
@@ -69,8 +69,8 @@ async function waitFor<T>(
   const startedAt = Date.now();
   for (;;) {
     const value = probe();
-    if (value !== undefined) return value;
-    if (Date.now() - startedAt > timeoutMs) throw new Error(`timed out waiting for ${label}`);
+    if (value !== undefined) {return value;}
+    if (Date.now() - startedAt > timeoutMs) {throw new Error(`timed out waiting for ${label}`);}
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
@@ -86,7 +86,7 @@ it("publishes real diagnostics over a full session and hot-reloads config edits"
 
   child = spawn(process.execPath, [BIN, "serve"], { stdio: ["pipe", "pipe", "pipe"] });
   const collector = new MessageCollector();
-  child.stdout.on("data", (chunk: Buffer) => collector.push(chunk));
+  child.stdout.on("data", (chunk: Buffer) => { collector.push(chunk); });
   const stderrLines: string[] = [];
   child.stderr.on("data", (chunk: Buffer) => stderrLines.push(chunk.toString("utf8")));
 
@@ -144,7 +144,7 @@ it("publishes real diagnostics over a full session and hot-reloads config edits"
   child.stdin.write(frame({ jsonrpc: "2.0", id: 2, method: "shutdown", params: null }));
   await waitFor(() => collector.messages.find((m) => m.id === 2), "shutdown response");
   const exited = new Promise<number | null>((resolve) => {
-    child?.on("exit", (code) => resolve(code));
+    child?.on("exit", (code) => { resolve(code); });
   });
   child.stdin.write(frame({ jsonrpc: "2.0", method: "exit", params: null }));
   const code = await exited;
@@ -177,7 +177,7 @@ it("expands an explicit workspace and publishes package-cycle diagnostics", asyn
 
   child = spawn(process.execPath, [BIN, "serve"], { stdio: ["pipe", "pipe", "pipe"] });
   const collector = new MessageCollector();
-  child.stdout.on("data", (chunk: Buffer) => collector.push(chunk));
+  child.stdout.on("data", (chunk: Buffer) => { collector.push(chunk); });
   child.stdin.write(frame({
     jsonrpc: "2.0",
     id: 1,

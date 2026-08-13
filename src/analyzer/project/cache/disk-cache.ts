@@ -14,10 +14,10 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import type {
-  ArchitectureDiagnostic,
   ArchitectureAnalysisSnapshot,
-  ArchitectureWaiver,
+  ArchitectureDiagnostic,
   ArchitectureReport,
+  ArchitectureWaiver,
   ResolvedArchitectureOptions,
 } from "../diagnostics/index.js";
 import { dependencyWatermarks } from "./dependency-watermark.js";
@@ -65,10 +65,10 @@ function cacheFilePathFor(projectRoot: string): string {
  */
 export function readDiskCache(projectRoot: string): PersistedReport | null {
   const filePath = cacheFilePathFor(projectRoot);
-  if (!fs.existsSync(filePath)) return null;
+  if (!fs.existsSync(filePath)) {return null;}
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as PersistedReport;
-    if (parsed.version !== CACHE_VERSION) return null;
+    if (parsed.version !== CACHE_VERSION) {return null;}
     return parsed;
   } catch (error) {
     return discardCacheError(error);
@@ -94,7 +94,7 @@ export function writeDiskCache(
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
   const diagnosticsByFile: Record<string, readonly ArchitectureDiagnostic[]> = {};
-  for (const [k, v] of report.diagnosticsByFile.entries()) diagnosticsByFile[k] = v;
+  for (const [k, v] of report.diagnosticsByFile.entries()) {diagnosticsByFile[k] = v;}
 
   const payload: PersistedReport = {
     version: CACHE_VERSION,
@@ -117,7 +117,7 @@ export function writeDiskCache(
  */
 export function hydrateReport(persisted: PersistedReport): ArchitectureReport {
   const byFile = new Map<string, readonly ArchitectureDiagnostic[]>();
-  for (const [k, v] of Object.entries(persisted.diagnosticsByFile)) byFile.set(k, v);
+  for (const [k, v] of Object.entries(persisted.diagnosticsByFile)) {byFile.set(k, v);}
   return {
     diagnostics: persisted.diagnostics,
     diagnosticsByFile: byFile,
@@ -166,14 +166,14 @@ export function computeFileWatermark(
 function enumerateProjectFiles(options: ResolvedArchitectureOptions): readonly string[] {
   const configPath =
     options.tsconfigPath ?? ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
-  if (!configPath) return [];
+  if (!configPath) {return [];}
   const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,
     path.dirname(configPath),
   );
-  if (parsed.errors.length > 0) return [];
+  if (parsed.errors.length > 0) {return [];}
   const root = path.resolve(options.projectRoot);
   return parsed.fileNames.filter((file) =>
     path.resolve(file).startsWith(root + path.sep) &&
@@ -204,9 +204,9 @@ export function watermarksMatch(
   before: readonly FileWatermark[],
   after: readonly FileWatermark[],
 ): boolean {
-  if (before.length !== after.length) return false;
+  if (before.length !== after.length) {return false;}
   for (let i = 0; i < before.length; i++) {
-    if (before[i].path !== after[i].path || before[i].hash !== after[i].hash) return false;
+    if (before[i].path !== after[i].path || before[i].hash !== after[i].hash) {return false;}
   }
   return true;
 }

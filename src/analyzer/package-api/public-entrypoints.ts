@@ -1,7 +1,6 @@
+import type ts from "typescript";
 import path from "node:path";
-import ts from "typescript";
-import { candidateFileNames, collectPackageExportEntries } from "../project/api/index.js";
-import type { PackageJson, ResolvedArchitectureOptions } from "../project/api/index.js";
+import { candidateFileNames, collectPackageExportEntries, type PackageJson, type ResolvedArchitectureOptions  } from "../project/api/index.js";
 
 const DEFAULT_PUBLIC_ENTRYPOINTS = [
   "src/index.ts",
@@ -17,7 +16,7 @@ export function publicApiFileNames(
 ): ReadonlySet<string> {
   const publicFiles = new Set<string>();
   addPackagePublicFiles(publicFiles, packageJson, sourceFilesByPath, options);
-  if (publicFiles.size === 0) addDefaultPublicFiles(publicFiles, options.projectRoot);
+  if (publicFiles.size === 0) {addDefaultPublicFiles(publicFiles, options.projectRoot);}
   return publicFiles;
 }
 
@@ -40,7 +39,7 @@ function addPackageExportPublicFiles(
 ): void {
   const candidates = sourceCandidatesForPackageTarget(targetPath, options.projectRoot);
   for (const candidate of candidates) {
-    if (sourceFilesByPath.has(candidate)) publicFiles.add(candidate);
+    if (sourceFilesByPath.has(candidate)) {publicFiles.add(candidate);}
   }
 }
 

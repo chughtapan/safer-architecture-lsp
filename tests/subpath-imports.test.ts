@@ -11,7 +11,7 @@ import {
   analyzeResolvedArchitecture,
   resolveArchitectureOptions,
 } from "../src/index.js";
-import { makeFixture, type Fixture } from "./support/fixtures.js";
+import { type Fixture, makeFixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;
 
@@ -39,7 +39,7 @@ it("treats an internal `#` re-export as package-owned, not a vendor leak", () =>
   });
 
   const ruleIds = ruleIdsFor(fixture.root);
-  for (const rule of SUBPATH_RULES) expect(ruleIds).not.toContain(rule);
+  for (const rule of SUBPATH_RULES) {expect(ruleIds).not.toContain(rule);}
 });
 
 it("treats a `#` import referenced in an exported declaration as internal", () => {
@@ -55,7 +55,7 @@ it("treats a `#` import referenced in an exported declaration as internal", () =
   });
 
   const ruleIds = ruleIdsFor(fixture.root);
-  for (const rule of SUBPATH_RULES) expect(ruleIds).not.toContain(rule);
+  for (const rule of SUBPATH_RULES) {expect(ruleIds).not.toContain(rule);}
 });
 
 it("still flags a `#` key that maps to a bare vendor package", () => {
@@ -106,5 +106,5 @@ it("treats a wildcard `#` re-export as package-owned when it maps internally", (
   });
 
   const ruleIds = ruleIdsFor(fixture.root);
-  for (const rule of SUBPATH_RULES) expect(ruleIds).not.toContain(rule);
+  for (const rule of SUBPATH_RULES) {expect(ruleIds).not.toContain(rule);}
 });

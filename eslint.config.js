@@ -38,6 +38,13 @@ export default [
     },
   },
   {
+    // Vitest's config contract is a default export, so the rule that bans them
+    // is scoped off here rather than reshaping application modules around a
+    // tool convention.
+    rules: { "import-x/no-default-export": "off" },
+    files: ["vitest.config.ts", "eslint.config.js"],
+  },
+  {
     ...recommended,
     files: ["*.ts"],
     languageOptions: {

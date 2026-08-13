@@ -1,16 +1,16 @@
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import {
-  analyzeResolvedArchitecture,
-  resolveArchitectureOptions,
-} from "../src/index.js";
 import { buildProjectGraph } from "../src/analyzer/imports/project-graph/index.js";
 import { emptyPackageJson } from "../src/analyzer/package-api/index.js";
 import {
   createProgram,
   projectSourceFiles,
 } from "../src/analyzer/project/source-files.js";
-import { makeFixture, type Fixture } from "./support/fixtures.js";
+import {
+  analyzeResolvedArchitecture,
+  resolveArchitectureOptions,
+} from "../src/index.js";
+import { type Fixture, makeFixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;
 
@@ -45,7 +45,7 @@ it("resolves tsconfig paths through one cached TypeScript snapshot", () => {
   });
   const options = resolveArchitectureOptions({ projectRoot: fixture.root });
   const program = createProgram(options);
-  if (program === null) throw new Error("fixture program should compile");
+  if (program === null) {throw new Error("fixture program should compile");}
 
   const graph = buildProjectGraph(
     projectSourceFiles(program, fixture.root),

@@ -1,7 +1,7 @@
-import fs from "node:fs";
-import path from "node:path";
 import { Either, Schema } from "effect";
 import { ArrayFormatter } from "effect/ParseResult";
+import fs from "node:fs";
+import path from "node:path";
 import { readPackageJson } from "../project/package-json.js";
 
 export const WORKSPACE_FILE_NAME = "safer-architecture.workspace.json";
@@ -102,7 +102,7 @@ export function discoverWorkspace(workspaceRoot: string): WorkspaceDiscovery {
     }
     const projectRoot = requestedRoot;
     const project = projectAt(projectRoot, true, manifestPath);
-    if (!project.ok) return project;
+    if (!project.ok) {return project;}
     if (names.has(project.project.name)) {
       return invalid(manifestPath, `duplicate package name: ${project.project.name}`);
     }

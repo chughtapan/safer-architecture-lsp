@@ -7,20 +7,19 @@
  * `WorkspaceCache` (Phase 5b) without changing it.
  */
 
-import path from "node:path";
-import { type FSWatcher, watch as chokidarWatch } from "chokidar";
-import { Data, Effect, PubSub, Scope, Stream } from "effect";
 import type ts from "typescript";
+import { watch as chokidarWatch, type FSWatcher } from "chokidar";
+import { Data, Effect, PubSub, type Scope, Stream } from "effect";
+import path from "node:path";
+import {
+  type ArchitectureDiagnostic,
+  type ArchitectureReport,
+  createProgram, type ResolvedArchitectureOptions 
+} from "../analyzer/project/api/index.js";
 import {
   clearWorkspaceCache,
   getOrCreateWorkspaceCache,
 } from "../analyzer/project/cache/index.js";
-import { createProgram } from "../analyzer/project/api/index.js";
-import type {
-  ArchitectureDiagnostic,
-  ArchitectureReport,
-  ResolvedArchitectureOptions,
-} from "../analyzer/project/api/index.js";
 
 /** Tag for engine-internal failure modes. */
 class WorkspaceEngineError extends Data.TaggedError("WorkspaceEngineError")<{
@@ -35,18 +34,18 @@ const TSCONFIG_PREFIX = "tsconfig";
 
 function isIgnoredPath(filePath: string): boolean {
   for (const segment of IGNORED_SEGMENTS) {
-    if (filePath.includes(`${path.sep}${segment}${path.sep}`)) return true;
-    if (filePath.endsWith(`${path.sep}${segment}`)) return true;
+    if (filePath.includes(`${path.sep}${segment}${path.sep}`)) {return true;}
+    if (filePath.endsWith(`${path.sep}${segment}`)) {return true;}
   }
   return false;
 }
 
 function isAnalyzerInput(filePath: string): boolean {
   const base = path.basename(filePath);
-  if (ANALYZER_INPUT_BASENAMES.has(base)) return true;
-  if (base.startsWith(TSCONFIG_PREFIX) && base.endsWith(".json")) return true;
+  if (ANALYZER_INPUT_BASENAMES.has(base)) {return true;}
+  if (base.startsWith(TSCONFIG_PREFIX) && base.endsWith(".json")) {return true;}
   for (const suffix of ANALYZER_INPUT_SUFFIXES) {
-    if (base.endsWith(suffix)) return true;
+    if (base.endsWith(suffix)) {return true;}
   }
   return false;
 }
@@ -100,7 +99,7 @@ const acquireWatcher = (
         ignoreInitial: true,
         persistent: true,
       });
-      w.on("ready", () => resume(Effect.succeed(w)));
+      w.on("ready", () => { resume(Effect.succeed(w)); });
     }),
     (w) =>
       Effect.tryPromise({
@@ -116,7 +115,7 @@ const wireWatcherToPubSub = (
   projectRoot: string,
 ): void => {
   const onChange = (filePath: string): void => {
-    if (!isAnalyzerInput(filePath)) return;
+    if (!isAnalyzerInput(filePath)) {return;}
     clearWorkspaceCache(projectRoot);
     Effect.runFork(PubSub.publish(pubsub, undefined));
   };
@@ -139,7 +138,7 @@ const buildLintPaths =
         const found: ArchitectureDiagnostic[] = [];
         for (const filePath of paths) {
           const findings = report.diagnosticsByFile.get(path.resolve(filePath));
-          if (findings !== undefined) found.push(...findings);
+          if (findings !== undefined) {found.push(...findings);}
         }
         return found;
       },
@@ -165,7 +164,7 @@ export const makeWorkspaceEngine = (
     const pubsub = yield* PubSub.unbounded<void>();
     const watcher = yield* acquireWatcher(options.projectRoot);
     yield* Effect.addFinalizer(() =>
-      Effect.sync(() => clearWorkspaceCache(options.projectRoot)),
+      Effect.sync(() => { clearWorkspaceCache(options.projectRoot); }),
     );
     wireWatcherToPubSub(watcher, pubsub, options.projectRoot);
     // Keep the last ts.Program so cache misses rebuild incrementally

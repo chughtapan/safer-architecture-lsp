@@ -63,7 +63,7 @@ function hashFileOrAbsent(filePath: string): string {
 
 let cachedAnalyzerVersion: string | null = null;
 function getAnalyzerVersion(): string {
-  if (cachedAnalyzerVersion !== null) return cachedAnalyzerVersion;
+  if (cachedAnalyzerVersion !== null) {return cachedAnalyzerVersion;}
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.resolve(here, "..", "..", "..", "..", "package.json");

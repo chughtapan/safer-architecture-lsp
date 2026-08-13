@@ -5,11 +5,18 @@
  * report consumed by the architecture LSP server and CI shim.
  */
 
-import path from "node:path";
 import type ts from "typescript";
-import { checkFolderShape } from "./folder-shape/index.js";
+import path from "node:path";
+import {
+  buildDirectiveIndex,
+  type DirectiveIndex,
+  type FileDirectives,
+  isDirectiveSuppressed,
+  parseDirectivesFromSourceFile,
+} from "./architecture-exceptions.js";
 import { domainArchitectureDiagnostics } from "./domains/index.js";
 import { checkInventoryBarrels } from "./exports/inventory-barrels.js";
+import { checkFolderShape } from "./folder-shape/index.js";
 import {
   buildProjectGraph,
   checkFolderGraph,
@@ -24,31 +31,22 @@ import {
   readPackageJson,
 } from "./package-api/index.js";
 import {
+  type ArchitectureDiagnostic,
+  type ArchitectureDiagnosticRuleId,
+  type ArchitectureReport,
+  type ArchitectureWaiver,
   createProgram,
   findPackageReportFile,
   programHealth,
   projectSourceFiles,
-  uniqueDiagnostics,
+  type ResolvedArchitectureOptions,
+  uniqueDiagnostics
 } from "./project/api/index.js";
-import { checkPublicVendorTypeLeaks } from "./type-surface/index.js";
-import {
-  buildDirectiveIndex,
-  isDirectiveSuppressed,
-  parseDirectivesFromSourceFile,
-  type DirectiveIndex,
-  type FileDirectives,
-} from "./architecture-exceptions.js";
 import {
   ARCHITECTURE_ANALYSIS_UNAVAILABLE_RULE_ID,
   ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID,
 } from "./rule-ids.js";
-import type {
-  ArchitectureDiagnostic,
-  ArchitectureDiagnosticRuleId,
-  ArchitectureReport,
-  ArchitectureWaiver,
-  ResolvedArchitectureOptions,
-} from "./project/api/index.js";
+import { checkPublicVendorTypeLeaks } from "./type-surface/index.js";
 
 interface DirectiveAnalysis {
   readonly directiveErrorDiagnostics: readonly ArchitectureDiagnostic[];
@@ -125,7 +123,7 @@ function analysisUnavailable(
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   const health = programHealth(options);
-  if (health.status === "ok") return [];
+  if (health.status === "ok") {return [];}
   return [
     {
       ruleId: ARCHITECTURE_ANALYSIS_UNAVAILABLE_RULE_ID,
@@ -142,8 +140,8 @@ function indexByFile(
   const byFile = new Map<string, ArchitectureDiagnostic[]>();
   for (const diagnostic of diagnostics) {
     const bucket = byFile.get(diagnostic.file);
-    if (bucket === undefined) byFile.set(diagnostic.file, [diagnostic]);
-    else bucket.push(diagnostic);
+    if (bucket === undefined) {byFile.set(diagnostic.file, [diagnostic]);}
+    else {bucket.push(diagnostic);}
   }
   return byFile;
 }
@@ -160,7 +158,7 @@ function resolvePublicVendorTypeLeaks(
 }
 
 function analyzeDirectiveComments(
-  sourceFiles: readonly ReturnType<typeof projectSourceFiles>[number][],
+  sourceFiles: ReadonlyArray<ReturnType<typeof projectSourceFiles>[number]>,
 ): DirectiveAnalysis {
   const fileDirectives: FileDirectives[] = [];
   const directiveErrorDiagnostics: ArchitectureDiagnostic[] = [];
@@ -224,7 +222,7 @@ function shouldKeepDiagnostic(
   diagnostic: ArchitectureDiagnostic,
   directiveAnalysis: DirectiveAnalysis,
 ): boolean {
-  if (diagnostic.ruleId === ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID) return true;
+  if (diagnostic.ruleId === ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID) {return true;}
   const ruleId = diagnostic.ruleId as ArchitectureDiagnosticRuleId;
   const resolvedFile = path.resolve(diagnostic.file);
   if (isDirectiveSuppressed(directiveAnalysis.directiveIndex, resolvedFile, ruleId)) {

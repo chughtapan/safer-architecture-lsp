@@ -6,15 +6,15 @@
 
 import path from "node:path";
 import {
+  type ResolvedArchitectureOptions,
+  stripKnownExtension,
+} from "../../project/api/index.js";
+import {
   explicitFacadeModule,
   generatedModule,
   type ProjectArchitectureGraph,
   type SourceModule,
 } from "../../project/index.js";
-import {
-  stripKnownExtension,
-  type ResolvedArchitectureOptions,
-} from "../../project/api/index.js";
 
 interface MutableFolderChildren {
   readonly folder: string;
@@ -54,7 +54,7 @@ export function folderChildren(
   options: ResolvedArchitectureOptions,
 ): readonly FolderChildren[] {
   const byFolder = new Map<string, MutableFolderChildren>();
-  for (const module of graph.modules) addModuleChildren(byFolder, module, options);
+  for (const module of graph.modules) {addModuleChildren(byFolder, module, options);}
   return [...byFolder.values()].sort(compareFolderChildren);
 }
 
@@ -63,10 +63,10 @@ function addModuleChildren(
   module: SourceModule,
   options: ResolvedArchitectureOptions,
 ): void {
-  if (generatedModule(module)) return;
+  if (generatedModule(module)) {return;}
   const folderSegments = module.folder === "." ? [] : module.folder.split("/");
   addAncestorFolderChildren(byFolder, module, folderSegments);
-  if (!explicitFacadeModule(module, options)) addDirectFileChild(byFolder, module);
+  if (!explicitFacadeModule(module, options)) {addDirectFileChild(byFolder, module);}
 }
 
 function addAncestorFolderChildren(
@@ -106,7 +106,7 @@ function mutableFolderChildren(
   folder: string,
 ): MutableFolderChildren {
   const existing = byFolder.get(folder);
-  if (existing) return existing;
+  if (existing) {return existing;}
   const children = {
     folder,
     productionChildren: new Set<string>(),

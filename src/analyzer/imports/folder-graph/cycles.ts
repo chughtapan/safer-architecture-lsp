@@ -1,20 +1,20 @@
+import type { ArchitectureDiagnostic } from "../../project/api/index.js";
+import type { FolderEdge, ProjectArchitectureGraph } from "../project-graph/index.js";
 import {
   cyclicStronglyConnectedComponents,
   makeDirectedGraph,
 } from "../../graph/index.js";
-import type { FolderEdge, ProjectArchitectureGraph } from "../project-graph/index.js";
-import type { ArchitectureDiagnostic } from "../../project/api/index.js";
 
 export function stronglyConnectedFolderComponents(
   folderEdges: readonly FolderEdge[],
-): readonly (readonly string[])[] {
+): ReadonlyArray<readonly string[]> {
   const nodes = folderEdges.flatMap((edge) => [edge.from, edge.to]);
   return cyclicStronglyConnectedComponents(makeDirectedGraph(nodes, folderEdges));
 }
 
 export function folderCycleDiagnostics(
   graph: ProjectArchitectureGraph,
-  components: readonly (readonly string[])[],
+  components: ReadonlyArray<readonly string[]>,
 ): readonly ArchitectureDiagnostic[] {
   return components.map((component) => ({
     ruleId: "no-folder-cycle",
@@ -29,12 +29,12 @@ export function folderCycleDiagnostics(
 
 export function rootInternalCycleDiagnostics(
   graph: ProjectArchitectureGraph,
-  components: readonly (readonly string[])[],
+  components: ReadonlyArray<readonly string[]>,
 ): readonly ArchitectureDiagnostic[] {
   const hasCycle = components.some(
     (component) => component.includes(".") && component.includes("internal"),
   );
-  if (!hasCycle) return [];
+  if (!hasCycle) {return [];}
 
   return [
     {

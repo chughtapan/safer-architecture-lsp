@@ -18,7 +18,7 @@ interface ArchitectureDirective {
 
 export interface FileDirectives {
   readonly file: string;
-  readonly directives: ReadonlyArray<ArchitectureDirective>;
+  readonly directives: readonly ArchitectureDirective[];
 }
 
 interface DirectiveParseError {
@@ -29,8 +29,8 @@ interface DirectiveParseError {
 }
 
 export interface DirectiveParseResult {
-  readonly directives: ReadonlyArray<ArchitectureDirective>;
-  readonly errors: ReadonlyArray<DirectiveParseError>;
+  readonly directives: readonly ArchitectureDirective[];
+  readonly errors: readonly DirectiveParseError[];
 }
 
 interface CommentLine {
@@ -90,13 +90,13 @@ function commentLinesFromRange(
 
 function blockCommentPrefixLength(raw: string): number {
   let cursor = raw.startsWith("/*") ? 2 : 0;
-  while (raw[cursor] === "*") cursor += 1;
+  while (raw[cursor] === "*") {cursor += 1;}
   return cursor;
 }
 
 function blockCommentContentEnd(raw: string): number {
   let end = raw.endsWith("/") ? raw.length - 1 : raw.length;
-  while (raw[end - 1] === "*") end -= 1;
+  while (raw[end - 1] === "*") {end -= 1;}
   return end;
 }
 
@@ -129,10 +129,10 @@ const DIRECTIVE_LINE = new RegExp(`^${DIRECTIVE_MARKER}\\s+([\\w-]+)\\s*:\\s*(.*
 
 function parseCommentLines(
   filePath: string,
-  commentLines: ReadonlyArray<CommentLine>,
+  commentLines: readonly CommentLine[],
 ): DirectiveParseResult {
   const state: ParseState = { directives: [], errors: [] };
-  for (const commentLine of commentLines) handleCommentLine(state, filePath, commentLine);
+  for (const commentLine of commentLines) {handleCommentLine(state, filePath, commentLine);}
   return { directives: state.directives, errors: state.errors };
 }
 
@@ -146,8 +146,8 @@ function handleCommentLine(
     state.errors.push(legacyMarkerError(filePath, line));
     return;
   }
-  if (!content.startsWith(DIRECTIVE_MARKER)) return;
-  const match = content.match(DIRECTIVE_LINE);
+  if (!content.startsWith(DIRECTIVE_MARKER)) {return;}
+  const match = DIRECTIVE_LINE.exec(content);
   if (match === null) {
     state.errors.push(malformedError(filePath, line));
     return;
@@ -217,7 +217,7 @@ export type DirectiveIndex = ReadonlyMap<
 // Reasons are retained per (file, rule) so the report can surface the
 // auditable waiver ledger. First directive wins on duplicates.
 export function buildDirectiveIndex(
-  fileDirectives: ReadonlyArray<FileDirectives>,
+  fileDirectives: readonly FileDirectives[],
 ): DirectiveIndex {
   const index = new Map<string, Map<ArchitectureDiagnosticRuleId, string>>();
   for (const { file, directives } of fileDirectives) {
@@ -227,7 +227,7 @@ export function buildDirectiveIndex(
       index.set(file, byRule);
     }
     for (const d of directives) {
-      if (!byRule.has(d.ruleId)) byRule.set(d.ruleId, d.reason);
+      if (!byRule.has(d.ruleId)) {byRule.set(d.ruleId, d.reason);}
     }
   }
   return index;

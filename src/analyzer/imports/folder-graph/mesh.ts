@@ -1,11 +1,11 @@
 import type {
-  FolderEdge,
-  ProjectArchitectureGraph,
-} from "../project-graph/index.js";
-import type {
   ArchitectureDiagnostic,
   ResolvedArchitectureOptions,
 } from "../../project/api/index.js";
+import type {
+  FolderEdge,
+  ProjectArchitectureGraph,
+} from "../project-graph/index.js";
 
 export interface ProductionFolderGraph {
   readonly folders: readonly string[];
@@ -25,7 +25,7 @@ function folderEdgeDensity(
   folders: readonly string[],
   folderEdges: readonly FolderEdge[],
 ): number {
-  if (folders.length < 2) return 0;
+  if (folders.length < 2) {return 0;}
 
   const uniqueDirections = new Set(
     folderEdges.map((edge) => `${edge.from}\0${edge.to}`),
@@ -36,15 +36,15 @@ function folderEdgeDensity(
 export function packageMeshDiagnostics(
   graph: ProjectArchitectureGraph,
   productionGraph: ProductionFolderGraph,
-  components: readonly (readonly string[])[],
+  components: ReadonlyArray<readonly string[]>,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
-  if (productionGraph.folders.length < options.minPackageMeshFolders) return [];
+  if (productionGraph.folders.length < options.minPackageMeshFolders) {return [];}
 
   const density = folderEdgeDensity(productionGraph.folders, productionGraph.edges);
   const tooDense = density > options.maxFolderEdgeDensity;
   const tooCyclic = components.length > options.maxFolderCycles;
-  if (!tooDense && !tooCyclic) return [];
+  if (!tooDense && !tooCyclic) {return [];}
 
   return [
     {

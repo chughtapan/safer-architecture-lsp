@@ -1,11 +1,11 @@
+import type { ProjectArchitectureGraph } from "../imports/index.js";
+import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 import {
   firstSorted,
   folderChildren,
-  sourceFolderPath,
   type FolderChildren,
+  sourceFolderPath,
 } from "./children/index.js";
-import type { ProjectArchitectureGraph } from "../imports/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 
 interface FolderSizeStats {
   readonly productionChildren: readonly string[];
@@ -33,7 +33,7 @@ function folderChildLimitDiagnostic(
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   const stats = folderSizeStats(children, options);
-  if (!largeFolder(stats)) return [];
+  if (!largeFolder(stats)) {return [];}
   return [largeFolderDiagnostic(children, graph, stats)];
 }
 

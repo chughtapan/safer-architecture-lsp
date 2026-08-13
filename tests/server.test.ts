@@ -23,7 +23,7 @@ function frame(message: object): Buffer {
 function readFirstMessage(chunks: Buffer): unknown {
   const raw = chunks.toString("utf8");
   const headerEnd = raw.indexOf("\r\n\r\n");
-  if (headerEnd === -1) throw new Error(`no LSP frame in: ${raw.slice(0, 200)}`);
+  if (headerEnd === -1) {throw new Error(`no LSP frame in: ${raw.slice(0, 200)}`);}
   return JSON.parse(raw.slice(headerEnd + 4));
 }
 
@@ -45,7 +45,7 @@ it("answers the initialize handshake with its identity", async () => {
 
   const response = await new Promise<unknown>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("initialize response timed out")),
+      () => { reject(new Error("initialize response timed out")); },
       15_000,
     );
     child.stdout.on("data", () => {

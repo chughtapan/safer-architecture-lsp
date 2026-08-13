@@ -42,13 +42,13 @@ export type ArchitectureDiagnosticRuleId =
 // could legitimately fire, so users always see the parse error regardless of
 // which rules they have enabled.
 export const ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID =
-  "architecture-directive-parse-error" as const;
+  "architecture-directive-parse-error";
 
 // A pseudo-rule that reports "analysis did not run" (missing or broken
 // tsconfig, crashed engine). A guardrail must never present a can't-
 // analyze state as an empty-clean report.
 export const ARCHITECTURE_ANALYSIS_UNAVAILABLE_RULE_ID =
-  "architecture-analysis-unavailable" as const;
+  "architecture-analysis-unavailable";
 
 export type ArchitectureRuleId =
   | ArchitectureDiagnosticRuleId

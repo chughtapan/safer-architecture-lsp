@@ -31,8 +31,8 @@ export function makeDirectedGraph<
   const sortedNodeIds = [...allNodeIds].sort(compareNodeIds);
   const sortedEdges = [...edges].sort(compareEdges);
   const outgoing = new Map<NodeId, Edge[]>();
-  for (const nodeId of sortedNodeIds) outgoing.set(nodeId, []);
-  for (const edge of sortedEdges) outgoing.get(edge.from)?.push(edge);
+  for (const nodeId of sortedNodeIds) {outgoing.set(nodeId, []);}
+  for (const edge of sortedEdges) {outgoing.get(edge.from)?.push(edge);}
 
   return {
     nodeIds: sortedNodeIds,

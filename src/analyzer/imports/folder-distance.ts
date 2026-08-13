@@ -1,9 +1,9 @@
+import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 import type {
   LocalModuleEdge,
   ProjectArchitectureGraph,
   SourceModule,
 } from "./project-graph/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 
 export function distantFolderImportDiagnostics(
   graph: ProjectArchitectureGraph,
@@ -26,11 +26,11 @@ function distantFolderImportDiagnostic(
   options: ResolvedArchitectureOptions,
   edge: LocalModuleEdge,
 ): readonly ArchitectureDiagnostic[] {
-  if (edge.kind !== "import") return [];
+  if (edge.kind !== "import") {return [];}
   const pair = modulePair(graph, edge);
-  if (pair === null || ignoredModulePair(pair.fromModule, pair.toModule)) return [];
+  if (pair === null || ignoredModulePair(pair.fromModule, pair.toModule)) {return [];}
   const distance = folderDistance(pair.fromModule.folder, pair.toModule.folder);
-  if (distance <= options.maxFolderImportDistance) return [];
+  if (distance <= options.maxFolderImportDistance) {return [];}
   return [distantImportDiagnostic(pair.fromModule, pair.toModule, distance, options)];
 }
 

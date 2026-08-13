@@ -25,7 +25,7 @@ export function hasExportModifier(statement: ts.Statement): boolean {
 }
 
 export function exportedDeclarationName(statement: ts.Statement): string | null {
-  if (ts.isVariableStatement(statement)) return variableStatementName(statement);
+  if (ts.isVariableStatement(statement)) {return variableStatementName(statement);}
   return nonVariableDeclarationName(statement);
 }
 
@@ -44,7 +44,7 @@ function variableStatementName(statement: ts.VariableStatement): string | null {
 function nonVariableDeclarationName(statement: ts.Statement): string | null {
   for (const reader of NON_VARIABLE_DECLARATION_NAME_READERS) {
     const name = reader(statement);
-    if (name !== undefined) return name;
+    if (name !== undefined) {return name;}
   }
   return null;
 }

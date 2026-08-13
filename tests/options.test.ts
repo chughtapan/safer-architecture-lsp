@@ -6,8 +6,8 @@
 
 import path from "node:path";
 import { expect, it } from "vitest";
-import { resolveArchitectureOptions } from "../src/index.js";
 import { createProgram } from "../src/analyzer/project/source-files.js";
+import { resolveArchitectureOptions } from "../src/index.js";
 import { makeFixture } from "./support/fixtures.js";
 
 it("resolves a bare projectRoot to absolute with defaults applied", () => {
@@ -17,7 +17,7 @@ it("resolves a bare projectRoot to absolute with defaults applied", () => {
 
 it("rejects malformed options with a per-issue message", () => {
   expect(() =>
-    resolveArchitectureOptions({ projectRoot: 42 } as never),
+    resolveArchitectureOptions({ projectRoot: 42 }),
   ).toThrowError(/architecture options/i);
 });
 
@@ -26,7 +26,7 @@ it("rejects an allowance entry missing its written reason", () => {
     resolveArchitectureOptions({
       projectRoot: ".",
       allowedPublicSubpaths: [{ subpath: "./cli" }],
-    } as never),
+    }),
   ).toThrowError(/architecture options/i);
 });
 
@@ -87,7 +87,7 @@ it("removes inert emit paths from the analysis compiler options", () => {
       resolveArchitectureOptions({ projectRoot: fixture.root }),
     );
     expect(program).not.toBeNull();
-    if (program === null) return;
+    if (program === null) {return;}
 
     const compilerOptions = program.getCompilerOptions();
     expect(compilerOptions).not.toHaveProperty("declarationMap");

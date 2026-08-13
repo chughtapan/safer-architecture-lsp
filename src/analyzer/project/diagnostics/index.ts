@@ -10,14 +10,14 @@ import type { ModuleResolutionSnapshotEntry } from "../source-model/graph-model.
 /** Severity reported by an architecture diagnostic. */
 export type ArchitectureSeverity = "error" | "warn";
 
+export type { ArchitectureDiagnosticRuleId } from "../../rule-ids.js";
+
 export type {
   CompositionRoot,
   DomainDefinition,
   DomainOwnership,
   LayerDefinition,
 } from "../config-schema.js";
-
-export type { ArchitectureDiagnosticRuleId } from "../../rule-ids.js";
 export type { ResolvedArchitectureOptions } from "../config.js";
 
 /** A single architecture finding pointed at one file. */
@@ -120,7 +120,7 @@ export function uniqueDiagnostics(
 
   for (const diagnostic of diagnostics) {
     const key = `${diagnostic.ruleId}\0${diagnostic.file}\0${diagnostic.message}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {continue;}
     seen.add(key);
     unique.push(diagnostic);
   }

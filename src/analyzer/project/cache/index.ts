@@ -11,8 +11,8 @@
  */
 
 import type ts from "typescript";
-import { analyzeResolvedArchitecture } from "../../index.js";
 import type { ArchitectureReport, ResolvedArchitectureOptions } from "../diagnostics/index.js";
+import { analyzeResolvedArchitecture } from "../../index.js";
 import { createProgram } from "../source-files.js";
 import {
   computeFileWatermark,
@@ -67,7 +67,7 @@ export class WorkspaceCache {
       programFingerprint === undefined ? optionsKey : `${optionsKey}|${programFingerprint}`;
     const now = Date.now();
     const cached = this.#reportCache.get(cacheKey);
-    if (cached !== undefined && cached.expiresAt > now) return cached.report;
+    if (cached !== undefined && cached.expiresAt > now) {return cached.report;}
 
     const diskLookup =
       programFingerprint === undefined ? this.#loadFromDiskCache(options) : null;
@@ -99,7 +99,7 @@ export class WorkspaceCache {
 
   #optionsKey(options: ResolvedArchitectureOptions): string {
     const cached = this.#keyCache.get(options);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {return cached;}
     const key = JSON.stringify(options);
     this.#keyCache.set(options, key);
     return key;
@@ -107,7 +107,7 @@ export class WorkspaceCache {
 
   #loadFromDiskCache(options: ResolvedArchitectureOptions): DiskCacheLookup {
     const persisted = readDiskCache(options.projectRoot);
-    if (persisted === null) return { report: null, watermark: null };
+    if (persisted === null) {return { report: null, watermark: null };}
     if (persisted.optionsHash !== hashOptions(options)) {
       return { report: null, watermark: null };
     }

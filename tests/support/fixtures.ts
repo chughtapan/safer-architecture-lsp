@@ -5,7 +5,7 @@
  * root and a cleanup handle.
  */
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -32,5 +32,5 @@ export function makeFixture(files: Readonly<Record<string, string>>): Fixture {
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, content);
   }
-  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { root, cleanup: () => { rmSync(root, { recursive: true, force: true }); } };
 }

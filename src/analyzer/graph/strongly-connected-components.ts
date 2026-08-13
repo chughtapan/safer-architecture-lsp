@@ -17,23 +17,29 @@ interface DfsFrame<NodeId extends string, Edge extends DirectedEdge<NodeId>> {
   nextEdge: number;
 }
 
-/** Return every SCC in deterministic node order, including acyclic singletons. */
+/**
+ * Return every SCC in deterministic node order, including acyclic singletons.
+ * @param graph
+ */
 export function stronglyConnectedComponents<
   NodeId extends string,
   Edge extends DirectedEdge<NodeId>,
->(graph: DirectedGraph<NodeId, Edge>): readonly (readonly NodeId[])[] {
+>(graph: DirectedGraph<NodeId, Edge>): ReadonlyArray<readonly NodeId[]> {
   const state = createTarjanState(graph);
   for (const nodeId of graph.nodeIds) {
-    if (!state.indices.has(nodeId)) connectComponents(state, nodeId);
+    if (!state.indices.has(nodeId)) {connectComponents(state, nodeId);}
   }
   return state.components.sort(compareComponents);
 }
 
-/** Return SCCs that contain a real cycle, including a singleton self-loop. */
+/**
+ * Return SCCs that contain a real cycle, including a singleton self-loop.
+ * @param graph
+ */
 export function cyclicStronglyConnectedComponents<
   NodeId extends string,
   Edge extends DirectedEdge<NodeId>,
->(graph: DirectedGraph<NodeId, Edge>): readonly (readonly NodeId[])[] {
+>(graph: DirectedGraph<NodeId, Edge>): ReadonlyArray<readonly NodeId[]> {
   return stronglyConnectedComponents(graph).filter((component) =>
     component.length > 1 || graph.outgoing.get(component[0])?.some((edge) => edge.to === component[0])
   );
@@ -42,6 +48,8 @@ export function cyclicStronglyConnectedComponents<
 /**
  * Select one stable cycle from an SCC. The lexicographically smallest
  * node is the root and sorted DFS edge order determines the returned path.
+ * @param graph
+ * @param component
  */
 export function canonicalCyclePath<
   NodeId extends string,
@@ -51,25 +59,25 @@ export function canonicalCyclePath<
   component: readonly NodeId[],
 ): readonly NodeId[] {
   const root = [...component].sort(compareNodeIds)[0];
-  if (root === undefined) return [];
+  if (root === undefined) {return [];}
 
   const componentNodes = new Set(component);
   const visited = new Set<NodeId>([root]);
   const parent = new Map<NodeId, NodeId>();
-  const frames: DfsFrame<NodeId, Edge>[] = [frameFor(graph, root, null)];
+  const frames: Array<DfsFrame<NodeId, Edge>> = [frameFor(graph, root, null)];
 
   while (frames.length > 0) {
     const frame = frames.at(-1);
-    if (frame === undefined) break;
+    if (frame === undefined) {break;}
     const edge = frame.edges[frame.nextEdge];
     if (edge === undefined) {
       frames.pop();
       continue;
     }
     frame.nextEdge += 1;
-    if (!componentNodes.has(edge.to)) continue;
-    if (edge.to === root) return [...pathTo(parent, frame.nodeId), root];
-    if (visited.has(edge.to)) continue;
+    if (!componentNodes.has(edge.to)) {continue;}
+    if (edge.to === root) {return [...pathTo(parent, frame.nodeId), root];}
+    if (visited.has(edge.to)) {continue;}
     visited.add(edge.to);
     parent.set(edge.to, frame.nodeId);
     frames.push(frameFor(graph, edge.to, frame.nodeId));
@@ -92,17 +100,21 @@ function createTarjanState<
   };
 }
 
-/** Iterative Tarjan traversal so large project graphs cannot exhaust the JS stack. */
+/**
+ * Iterative Tarjan traversal so large project graphs cannot exhaust the JS stack.
+ * @param state
+ * @param start
+ */
 function connectComponents<
   NodeId extends string,
   Edge extends DirectedEdge<NodeId>,
 >(state: TarjanState<NodeId, Edge>, start: NodeId): void {
   initializeNode(state, start);
-  const frames: DfsFrame<NodeId, Edge>[] = [frameFor(state.graph, start, null)];
+  const frames: Array<DfsFrame<NodeId, Edge>> = [frameFor(state.graph, start, null)];
 
   while (frames.length > 0) {
     const frame = frames.at(-1);
-    if (frame === undefined) break;
+    if (frame === undefined) {break;}
     const edge = frame.edges[frame.nextEdge];
     if (edge !== undefined) {
       frame.nextEdge += 1;
@@ -147,7 +159,7 @@ function updateLowlink<
   Edge extends DirectedEdge<NodeId>,
 >(state: TarjanState<NodeId, Edge>, nodeId: NodeId, candidate: number | undefined): void {
   const current = state.lowlinks.get(nodeId);
-  if (current === undefined || candidate === undefined) return;
+  if (current === undefined || candidate === undefined) {return;}
   state.lowlinks.set(nodeId, Math.min(current, candidate));
 }
 
@@ -155,7 +167,7 @@ function completeComponent<
   NodeId extends string,
   Edge extends DirectedEdge<NodeId>,
 >(state: TarjanState<NodeId, Edge>, nodeId: NodeId): void {
-  if (state.lowlinks.get(nodeId) !== state.indices.get(nodeId)) return;
+  if (state.lowlinks.get(nodeId) !== state.indices.get(nodeId)) {return;}
   const component = popComponent(state, nodeId);
   component.sort(compareNodeIds);
   state.components.push(component);
@@ -168,10 +180,10 @@ function popComponent<
   const component: NodeId[] = [];
   while (state.stack.length > 0) {
     const next = state.stack.pop();
-    if (next === undefined) return component;
+    if (next === undefined) {return component;}
     state.onStack.delete(next);
     component.push(next);
-    if (next === root) return component;
+    if (next === root) {return component;}
   }
   return component;
 }
@@ -184,7 +196,7 @@ function pathTo<NodeId extends string>(
   let current = nodeId;
   while (parent.has(current)) {
     const next = parent.get(current);
-    if (next === undefined) break;
+    if (next === undefined) {break;}
     reversed.push(next);
     current = next;
   }

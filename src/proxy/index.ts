@@ -60,7 +60,7 @@ async function main(argv: string[]): Promise<number> {
     name: "safer-lsp-proxy",
     version: packageVersion(),
   });
-  const onSignal = (): void => multiplexer.requestStop();
+  const onSignal = (): void => { multiplexer.requestStop(); };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
   try {

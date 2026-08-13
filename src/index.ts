@@ -10,24 +10,24 @@
 
 export { analyzeResolvedArchitecture } from "./analyzer/index.js";
 export {
-  ARCHITECTURE_DIAGNOSTIC_RULE_IDS,
-  ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID,
-  type ArchitectureRuleId,
-} from "./analyzer/rule-ids.js";
-export {
-  resolveArchitectureOptions,
   type ArchitectureOptionsInput,
+  resolveArchitectureOptions,
 } from "./analyzer/project/api/index.js";
 export type {
-  ArchitectureDiagnostic,
   ArchitectureAnalysisSnapshot,
+  ArchitectureDiagnostic,
   ArchitectureDiagnosticRuleId,
   ArchitectureReport,
-  ArchitectureWaiver,
   ArchitectureSeverity,
+  ArchitectureWaiver,
   CompositionRoot,
   DomainDefinition,
   DomainOwnership,
   LayerDefinition,
   ResolvedArchitectureOptions,
 } from "./analyzer/project/api/index.js";
+export {
+  ARCHITECTURE_DIAGNOSTIC_RULE_IDS,
+  ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID,
+  type ArchitectureRuleId,
+} from "./analyzer/rule-ids.js";

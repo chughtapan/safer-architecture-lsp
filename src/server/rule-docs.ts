@@ -16,11 +16,14 @@ const FALLBACK_CODE_DESCRIPTION: { readonly href: string } = Object.freeze({
 
 const cache = new Map<string, { readonly href: string }>();
 
-/** `codeDescription` for `ruleId`. Returns a shared frozen object. */
+/**
+ * `codeDescription` for `ruleId`. Returns a shared frozen object.
+ * @param ruleId
+ */
 export function ruleCodeDescription(
   ruleId: string,
 ): { readonly href: string } {
-  if (ruleId.length === 0) return FALLBACK_CODE_DESCRIPTION;
+  if (ruleId.length === 0) {return FALLBACK_CODE_DESCRIPTION;}
   let entry = cache.get(ruleId);
   if (entry === undefined) {
     entry = Object.freeze({ href: `${RULE_DOCS_BASE}#${ruleId as ArchitectureRuleId}` });

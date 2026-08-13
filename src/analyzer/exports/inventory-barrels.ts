@@ -1,8 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { SOURCE_EXTENSIONS, stripKnownExtension } from "../project/api/index.js";
-import type { ResolvedArchitectureOptions, ArchitectureDiagnostic } from "../project/api/index.js";
+import { type ArchitectureDiagnostic, type ResolvedArchitectureOptions, SOURCE_EXTENSIONS, stripKnownExtension  } from "../project/api/index.js";
 
 export function checkInventoryBarrels(
   sourceFiles: readonly ts.SourceFile[],
@@ -17,7 +16,7 @@ function inventoryBarrelDiagnostic(
   sourceFile: ts.SourceFile,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
-  if (!isIndexSourceFile(sourceFile.fileName)) return [];
+  if (!isIndexSourceFile(sourceFile.fileName)) {return [];}
 
   const eligibleSiblingModules = eligibleSiblingModuleKeys(path.dirname(sourceFile.fileName));
   const exportedEligibleSiblingModules = intersectSets(
@@ -27,9 +26,9 @@ function inventoryBarrelDiagnostic(
   const exportedCount = exportedEligibleSiblingModules.size;
   const eligibleCount = eligibleSiblingModules.size;
 
-  if (eligibleCount === 0) return [];
-  if (exportedCount < options.minExportedSiblingModules) return [];
-  if (exportedCount / eligibleCount < options.maxExportedSiblingRatio) return [];
+  if (eligibleCount === 0) {return [];}
+  if (exportedCount < options.minExportedSiblingModules) {return [];}
+  if (exportedCount / eligibleCount < options.maxExportedSiblingRatio) {return [];}
 
   return [
     {
@@ -59,7 +58,7 @@ function eligibleSiblingModuleKeys(directory: string): ReadonlySet<string> {
 
   for (const entry of entries) {
     const moduleKey = eligibleSiblingEntryKey(directory, entry);
-    if (moduleKey !== null) keys.add(moduleKey);
+    if (moduleKey !== null) {keys.add(moduleKey);}
   }
 
   return keys;
@@ -69,8 +68,8 @@ function eligibleSiblingEntryKey(
   directory: string,
   entry: fs.Dirent,
 ): string | null {
-  if (entry.name.startsWith(".")) return null;
-  if (!entry.isDirectory()) return sourceModuleKey(entry.name);
+  if (entry.name.startsWith(".")) {return null;}
+  if (!entry.isDirectory()) {return sourceModuleKey(entry.name);}
   return directoryHasIndexSource(path.join(directory, entry.name))
     ? entry.name
     : null;
@@ -83,7 +82,7 @@ function directoryHasIndexSource(directory: string): boolean {
 }
 
 function sourceModuleKey(fileName: string): string | null {
-  if (isExcludedSourceFile(fileName)) return null;
+  if (isExcludedSourceFile(fileName)) {return null;}
 
   const extension = SOURCE_EXTENSIONS.find((candidate) => fileName.endsWith(candidate));
   return extension ? fileName.slice(0, -extension.length) : null;
@@ -106,7 +105,7 @@ function exportedSiblingModuleKeys(
 
   for (const statement of sourceFile.statements) {
     const moduleKey = exportedSiblingModuleKey(statement, options);
-    if (moduleKey !== null) keys.add(moduleKey);
+    if (moduleKey !== null) {keys.add(moduleKey);}
   }
 
   return keys;
@@ -116,30 +115,30 @@ function exportedSiblingModuleKey(
   statement: ts.Statement,
   options: Pick<ResolvedArchitectureOptions, "countTypeOnlyExports">,
 ): string | null {
-  if (!ts.isExportDeclaration(statement)) return null;
-  if (!options.countTypeOnlyExports && exportDeclarationIsTypeOnly(statement)) return null;
+  if (!ts.isExportDeclaration(statement)) {return null;}
+  if (!options.countTypeOnlyExports && exportDeclarationIsTypeOnly(statement)) {return null;}
   const moduleSpecifier = statement.moduleSpecifier;
-  if (moduleSpecifier === undefined) return null;
-  if (!ts.isStringLiteral(moduleSpecifier)) return null;
+  if (moduleSpecifier === undefined) {return null;}
+  if (!ts.isStringLiteral(moduleSpecifier)) {return null;}
   return siblingModuleKeyFromSpecifier(moduleSpecifier.text);
 }
 
 function exportDeclarationIsTypeOnly(statement: ts.ExportDeclaration): boolean {
-  if (statement.isTypeOnly) return true;
-  if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return false;
+  if (statement.isTypeOnly) {return true;}
+  if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) {return false;}
   return statement.exportClause.elements.every((specifier) => specifier.isTypeOnly);
 }
 
 function siblingModuleKeyFromSpecifier(specifier: string): string | null {
-  if (!specifier.startsWith("./")) return null;
+  if (!specifier.startsWith("./")) {return null;}
 
   const segments = stripKnownExtension(specifier.slice(2))
     .replaceAll("\\", "/")
     .split("/")
     .filter((segment) => segment.length > 0);
 
-  if (segments.length === 1) return segments[0] === "index" ? null : segments[0] ?? null;
-  if (segments.length === 2 && segments[1] === "index") return segments[0] ?? null;
+  if (segments.length === 1) {return segments[0] === "index" ? null : segments[0] ?? null;}
+  if (segments.length === 2 && segments[1] === "index") {return segments[0] ?? null;}
   return null;
 }
 

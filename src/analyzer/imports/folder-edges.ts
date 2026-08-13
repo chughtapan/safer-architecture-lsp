@@ -38,9 +38,9 @@ function folderEdgeRecord(
 ): FolderEdgeRecord | null {
   const fromModule = modulesByFileName.get(edge.from);
   const toModule = modulesByFileName.get(edge.to);
-  if (!fromModule || !toModule) return null;
-  if (fromModule.folder === toModule.folder) return null;
-  if (nestedNonRootFolderPair(fromModule.folder, toModule.folder)) return null;
+  if (!fromModule || !toModule) {return null;}
+  if (fromModule.folder === toModule.folder) {return null;}
+  if (nestedNonRootFolderPair(fromModule.folder, toModule.folder)) {return null;}
   return {
     key: `${fromModule.folder}\0${toModule.folder}\0${edge.kind}`,
     fileName: fromModule.fileName,
@@ -53,7 +53,7 @@ function folderEdgeRecord(
 }
 
 function nestedNonRootFolderPair(left: string, right: string): boolean {
-  if (left === "." || right === ".") return false;
+  if (left === "." || right === ".") {return false;}
   return folderContains(left, right) || folderContains(right, left);
 }
 

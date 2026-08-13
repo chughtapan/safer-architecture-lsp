@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { makeFixture, type Fixture } from "./support/fixtures.js";
+import { type Fixture, makeFixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;
 

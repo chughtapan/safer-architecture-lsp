@@ -5,11 +5,11 @@
  */
 
 export {
-  checkPackageExports,
-} from "./package-exports.js";
-export { checkPublicSurface } from "./public-surface.js";
-export { publicApiFileNames } from "./public-entrypoints.js";
-export {
   emptyPackageJson,
   readPackageJson,
 } from "../project/api/index.js";
+export {
+  checkPackageExports,
+} from "./package-exports.js";
+export { publicApiFileNames } from "./public-entrypoints.js";
+export { checkPublicSurface } from "./public-surface.js";

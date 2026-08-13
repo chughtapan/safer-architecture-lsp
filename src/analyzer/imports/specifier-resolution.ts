@@ -1,7 +1,7 @@
 import path from "node:path";
 import ts from "typescript";
-import { candidateFileNames, SOURCE_EXTENSIONS } from "../project/api/index.js";
 import type { ModuleResolutionSnapshotEntry } from "../project/index.js";
+import { candidateFileNames, SOURCE_EXTENSIONS } from "../project/api/index.js";
 
 /**
  * One TypeScript module resolver and exact-result cache per project graph.
@@ -32,7 +32,7 @@ export class CachedModuleResolver {
   resolveLocal(fromFile: string, specifier: string): string | null {
     const key = resolutionKey(fromFile, specifier);
     const cached = this.#results.get(key);
-    if (cached !== undefined) return cached.targetFile;
+    if (cached !== undefined) {return cached.targetFile;}
 
     const targetFile = this.#resolveWithTypeScript(fromFile, specifier) ??
       resolveRelativeFallback(fromFile, specifier, this.#sourceFilesByPath);
@@ -56,7 +56,7 @@ export class CachedModuleResolver {
       ts.sys,
       this.#typescriptCache,
     ).resolvedModule;
-    if (resolution === undefined) return null;
+    if (resolution === undefined) {return null;}
 
     const resolvedFileName = path.resolve(resolution.resolvedFileName);
     return this.#sourceFilesByPath.has(resolvedFileName) ? resolvedFileName : null;
@@ -68,7 +68,7 @@ function resolveRelativeFallback(
   specifier: string,
   sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
 ): string | null {
-  if (!specifier.startsWith(".")) return null;
+  if (!specifier.startsWith(".")) {return null;}
 
   const absolute = path.resolve(path.dirname(fromFile), specifier);
   const candidates = [

@@ -10,7 +10,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import type { BackendSpec } from "./config.js";
-import { FrameDecoder, encodePacket, type Message } from "./framing.js";
+import { encodePacket, FrameDecoder, type Message } from "./framing.js";
 import { log } from "./log.js";
 
 /** A sidecar buffers at most this many bytes before it starts dropping. */
@@ -73,12 +73,12 @@ export class Backend {
     });
 
     const stdout = child.stdout;
-    if (stdout === null) throw new Error(`backend ${this.label} has no stdout`);
+    if (stdout === null) {throw new Error(`backend ${this.label} has no stdout`);}
     const decoder = new FrameDecoder(this.label);
     stdout.on("data", (chunk: Buffer) => {
       decoder.push(chunk);
       try {
-        for (const message of decoder.drain()) handlers.onMessage(this.index, message);
+        for (const message of decoder.drain()) {handlers.onMessage(this.index, message);}
       } catch (error) {
         handlers.onError(this.index, error instanceof Error ? error.message : String(error));
       }
@@ -95,26 +95,26 @@ export class Backend {
 
   send(message: Message): Promise<void> {
     const packet = encodePacket(message);
-    if (this.isPrimary) return this.writePrimary(packet);
+    if (this.isPrimary) {return this.writePrimary(packet);}
     this.enqueueSidecar(packet);
     return Promise.resolve();
   }
 
   closeStdin(): void {
     const stdin = this.process?.stdin;
-    if (stdin && !stdin.destroyed) stdin.end();
+    if (stdin && !stdin.destroyed) {stdin.end();}
   }
 
   terminate(): void {
-    if (!this.exited) this.process?.kill("SIGTERM");
+    if (!this.exited) {this.process?.kill("SIGTERM");}
   }
 
   kill(): void {
-    if (!this.exited) this.process?.kill("SIGKILL");
+    if (!this.exited) {this.process?.kill("SIGKILL");}
   }
 
   waitExit(): Promise<void> {
-    if (this.exited || this.process === undefined) return Promise.resolve();
+    if (this.exited || this.process === undefined) {return Promise.resolve();}
     return new Promise((resolve) => this.exitResolvers.push(resolve));
   }
 
@@ -127,7 +127,7 @@ export class Backend {
   private releaseExitWaiters(): void {
     const resolvers = this.exitResolvers;
     this.exitResolvers = [];
-    for (const resolve of resolvers) resolve();
+    for (const resolve of resolvers) {resolve();}
   }
 
   private writePrimary(packet: Buffer): Promise<void> {
@@ -143,7 +143,7 @@ export class Backend {
         reject(new Error(`backend ${this.label} has no stdin`));
         return;
       }
-      stdin.write(packet, (error) => (error ? reject(error) : resolve()));
+      stdin.write(packet, (error) => { error ? reject(error) : resolve(); });
     });
   }
 
@@ -154,7 +154,7 @@ export class Backend {
     }
     this.sidecarQueue.push(packet);
     this.sidecarBytes += packet.length;
-    if (!this.sidecarDraining) this.flushSidecar();
+    if (!this.sidecarDraining) {this.flushSidecar();}
   }
 
   // Node's pipe buffer is unbounded — write() reports backpressure by

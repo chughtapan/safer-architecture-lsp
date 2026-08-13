@@ -1,11 +1,11 @@
 import path from "node:path";
 import ts from "typescript";
-import type { CachedModuleResolver } from "./specifier-resolution.js";
 import type {
   ExternalModuleEdge,
   LocalModuleEdge,
   ModuleEdgeKind,
 } from "../project/index.js";
+import type { CachedModuleResolver } from "./specifier-resolution.js";
 
 export interface ModuleEdges {
   readonly localEdges: readonly LocalModuleEdge[];
@@ -30,7 +30,7 @@ export function collectModuleEdges(
 
   for (const statement of sourceFile.statements) {
     const context = specifierEdgeContext(sourceFile, statement, resolver);
-    if (context !== null) collectSpecifierEdge(context, localEdges, externalEdges);
+    if (context !== null) {collectSpecifierEdge(context, localEdges, externalEdges);}
   }
 
   return { localEdges, externalEdges };
@@ -51,7 +51,7 @@ function specifierEdgeContext(
       sideEffectOnly: importDeclarationIsSideEffectOnly(statement),
     };
   }
-  if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier) return null;
+  if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier) {return null;}
   return {
     fromFile: sourceFile.fileName,
     moduleSpecifier: statement.moduleSpecifier,
@@ -63,7 +63,7 @@ function specifierEdgeContext(
 }
 
 function importDeclarationIsSideEffectOnly(statement: ts.ImportDeclaration): boolean {
-  if (statement.importClause === undefined) return true;
+  if (statement.importClause === undefined) {return true;}
   const { name, namedBindings } = statement.importClause;
   return name === undefined &&
     namedBindings !== undefined &&
@@ -76,7 +76,7 @@ function collectSpecifierEdge(
   localEdges: LocalModuleEdge[],
   externalEdges: ExternalModuleEdge[],
 ): void {
-  if (!ts.isStringLiteral(context.moduleSpecifier)) return;
+  if (!ts.isStringLiteral(context.moduleSpecifier)) {return;}
   const specifier = context.moduleSpecifier.text;
   const localTarget = context.resolver.resolveLocal(context.fromFile, specifier);
   if (localTarget) {
@@ -119,7 +119,7 @@ function externalModuleEdge(
 }
 
 function importDeclarationIsTypeOnly(statement: ts.ImportDeclaration): boolean {
-  if (statement.importClause?.isTypeOnly) return true;
+  if (statement.importClause?.isTypeOnly) {return true;}
   const namedBindings = statement.importClause?.namedBindings;
   return Boolean(
     namedBindings &&
@@ -130,16 +130,16 @@ function importDeclarationIsTypeOnly(statement: ts.ImportDeclaration): boolean {
 }
 
 function exportDeclarationIsTypeOnly(statement: ts.ExportDeclaration): boolean {
-  if (statement.isTypeOnly) return true;
-  if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return false;
+  if (statement.isTypeOnly) {return true;}
+  if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) {return false;}
   return statement.exportClause.elements.every((specifier) => specifier.isTypeOnly);
 }
 
 function packageNameFromSpecifier(specifier: string): string | null {
-  if (specifier.startsWith(".") || specifier.startsWith("/")) return null;
-  if (specifier.startsWith("node:")) return "node";
+  if (specifier.startsWith(".") || specifier.startsWith("/")) {return null;}
+  if (specifier.startsWith("node:")) {return "node";}
 
   const segments = specifier.split("/");
-  if (segments[0]?.startsWith("@")) return segments.slice(0, 2).join("/");
+  if (segments[0]?.startsWith("@")) {return segments.slice(0, 2).join("/");}
   return segments[0] ?? null;
 }

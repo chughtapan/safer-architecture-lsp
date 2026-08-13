@@ -1,6 +1,6 @@
-import path from "node:path";
 import { assert, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import path from "node:path";
 import { DiagnosticSeverity } from "vscode-languageserver";
 import { groupByUri } from "../src/server/diagnostic-converter.js";
 import { makeDocumentStore } from "../src/server/document-store.js";

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -13,7 +13,7 @@ const TSCONFIG = JSON.stringify({
 });
 
 afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) {rmSync(root, { recursive: true, force: true });}
 });
 
 it("rejects workspace package roots that escape the explicit manifest", () => {
@@ -24,7 +24,7 @@ it("rejects workspace package roots that escape the explicit manifest", () => {
   );
   const result = discoverWorkspace(root);
   expect(result.ok).toBe(false);
-  if (!result.ok) expect(result.problem).toContain("escapes the workspace");
+  if (!result.ok) {expect(result.problem).toContain("escapes the workspace");}
 });
 
 it("rejects workspace package roots that escape through a symlink", () => {
@@ -39,7 +39,7 @@ it("rejects workspace package roots that escape through a symlink", () => {
   );
   const result = discoverWorkspace(root);
   expect(result.ok).toBe(false);
-  if (!result.ok) expect(result.problem).toContain("through a symlink");
+  if (!result.ok) {expect(result.problem).toContain("through a symlink");}
 });
 
 it.each([
@@ -53,7 +53,7 @@ it.each([
   writeFileSync(path.join(root, "safer-architecture.workspace.json"), manifest);
   const result = discoverWorkspace(root);
   expect(result.ok).toBe(false);
-  if (!result.ok) expect(result.problem).toContain(message);
+  if (!result.ok) {expect(result.problem).toContain(message);}
 });
 
 it("rejects invalid, unnamed, duplicate-root, and duplicate-name packages", () => {
@@ -63,7 +63,7 @@ it("rejects invalid, unnamed, duplicate-root, and duplicate-name packages", () =
   writeFileSync(path.join(invalidJsonRoot, "safer-architecture.workspace.json"), JSON.stringify({ packages: ["packages/a"] }));
   const invalidJson = discoverWorkspace(invalidJsonRoot);
   expect(invalidJson.ok).toBe(false);
-  if (!invalidJson.ok) expect(invalidJson.problem).toContain("invalid package.json");
+  if (!invalidJson.ok) {expect(invalidJson.problem).toContain("invalid package.json");}
 
   const unnamedRoot = workspaceRoot();
   mkdirSync(path.join(unnamedRoot, "packages/a"), { recursive: true });
@@ -71,21 +71,21 @@ it("rejects invalid, unnamed, duplicate-root, and duplicate-name packages", () =
   writeFileSync(path.join(unnamedRoot, "safer-architecture.workspace.json"), JSON.stringify({ packages: ["packages/a"] }));
   const unnamed = discoverWorkspace(unnamedRoot);
   expect(unnamed.ok).toBe(false);
-  if (!unnamed.ok) expect(unnamed.problem).toContain("non-empty name");
+  if (!unnamed.ok) {expect(unnamed.problem).toContain("non-empty name");}
 
   const blankRoot = workspaceRoot();
   writePackage(blankRoot, "packages/a", "   ");
   writeFileSync(path.join(blankRoot, "safer-architecture.workspace.json"), JSON.stringify({ packages: ["packages/a"] }));
   const blank = discoverWorkspace(blankRoot);
   expect(blank.ok).toBe(false);
-  if (!blank.ok) expect(blank.problem).toContain("non-empty name");
+  if (!blank.ok) {expect(blank.problem).toContain("non-empty name");}
 
   const duplicateRoot = workspaceRoot();
   writePackage(duplicateRoot, "packages/a", "@fixture/a");
   writeFileSync(path.join(duplicateRoot, "safer-architecture.workspace.json"), JSON.stringify({ packages: ["packages/a", "packages/a"] }));
   const duplicate = discoverWorkspace(duplicateRoot);
   expect(duplicate.ok).toBe(false);
-  if (!duplicate.ok) expect(duplicate.problem).toContain("duplicate package root");
+  if (!duplicate.ok) {expect(duplicate.problem).toContain("duplicate package root");}
 
   const duplicateNameRoot = workspaceRoot();
   writePackage(duplicateNameRoot, "packages/a", "@fixture/same");
@@ -93,7 +93,7 @@ it("rejects invalid, unnamed, duplicate-root, and duplicate-name packages", () =
   writeFileSync(path.join(duplicateNameRoot, "safer-architecture.workspace.json"), JSON.stringify({ packages: ["packages/a", "packages/b"] }));
   const duplicateName = discoverWorkspace(duplicateNameRoot);
   expect(duplicateName.ok).toBe(false);
-  if (!duplicateName.ok) expect(duplicateName.problem).toContain("duplicate package name");
+  if (!duplicateName.ok) {expect(duplicateName.problem).toContain("duplicate package name");}
 });
 
 it("falls back to a named single project when no workspace manifest exists", () => {
@@ -120,9 +120,9 @@ it("merges project reports, snapshots, and deterministic package cycles", () => 
   });
   expect(result.status).toBe(1);
   const report = JSON.parse(result.stdout) as {
-    projects: readonly { name: string }[];
-    diagnostics: readonly { ruleId: string; message: string }[];
-    snapshots: readonly { projectRoot: string; sourceFiles: readonly string[] }[];
+    projects: ReadonlyArray<{ name: string }>;
+    diagnostics: ReadonlyArray<{ ruleId: string; message: string }>;
+    snapshots: ReadonlyArray<{ projectRoot: string; sourceFiles: readonly string[] }>;
   };
   expect(report.projects.map(({ name }) => name)).toEqual(["@fixture/a", "@fixture/b"]);
   expect(report.diagnostics).toContainEqual(expect.objectContaining({

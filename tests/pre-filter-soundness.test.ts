@@ -7,10 +7,6 @@
 import { symlinkSync } from "node:fs";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import {
-  analyzeResolvedArchitecture,
-  resolveArchitectureOptions,
-} from "../src/index.js";
 import { buildProjectGraph } from "../src/analyzer/imports/project-graph/index.js";
 import { emptyPackageJson } from "../src/analyzer/package-api/index.js";
 import {
@@ -18,7 +14,11 @@ import {
   projectSourceFiles,
 } from "../src/analyzer/project/source-files.js";
 import { buildExternalTypeReach } from "../src/analyzer/type-surface/external-reach.js";
-import { makeFixture, type Fixture } from "./support/fixtures.js";
+import {
+  analyzeResolvedArchitecture,
+  resolveArchitectureOptions,
+} from "../src/index.js";
+import { type Fixture, makeFixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;
 
@@ -199,14 +199,14 @@ it("treats a string-literal module declaration as requiring the full walk", () =
   const options = resolveArchitectureOptions({ projectRoot: fixture.root });
   const program = createProgram(options);
   expect(program).not.toBeNull();
-  if (program === null) return;
+  if (program === null) {return;}
 
   const sourceFiles = projectSourceFiles(program, fixture.root);
   const publicFile = sourceFiles.find((sourceFile) =>
     path.basename(sourceFile.fileName) === "index.ts"
   );
   expect(publicFile).toBeDefined();
-  if (publicFile === undefined) return;
+  if (publicFile === undefined) {return;}
 
   const graph = buildProjectGraph(
     sourceFiles,
@@ -240,14 +240,14 @@ it("keeps a checker-resolved internal # edge on the local fast path", () => {
   const options = resolveArchitectureOptions({ projectRoot: fixture.root });
   const program = createProgram(options);
   expect(program).not.toBeNull();
-  if (program === null) return;
+  if (program === null) {return;}
 
   const sourceFiles = projectSourceFiles(program, fixture.root);
   const publicFile = sourceFiles.find((sourceFile) =>
     path.basename(sourceFile.fileName) === "index.ts"
   );
   expect(publicFile).toBeDefined();
-  if (publicFile === undefined) return;
+  if (publicFile === undefined) {return;}
 
   const graph = buildProjectGraph(
     sourceFiles,

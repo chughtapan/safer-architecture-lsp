@@ -1,9 +1,9 @@
-import path from "node:path";
 import { Data, Either } from "effect";
 import { ArrayFormatter } from "effect/ParseResult";
+import path from "node:path";
 import {
-  decodeArchitectureOptions,
   type ArchitectureOptions,
+  decodeArchitectureOptions,
 } from "./config-schema.js";
 
 // Memoize the schema decode on the raw input reference. ESLint hands the
@@ -15,13 +15,13 @@ import {
 const decodedCache = new WeakMap<object, ArchitectureOptions>();
 
 interface ArchitectureOptionsIssue {
-  readonly path: ReadonlyArray<PropertyKey>;
+  readonly path: readonly PropertyKey[];
   readonly message: string;
 }
 
 class ArchitectureOptionsError extends Data.TaggedError("ArchitectureOptionsError")<{
   readonly message: string;
-  readonly issues: ReadonlyArray<ArchitectureOptionsIssue>;
+  readonly issues: readonly ArchitectureOptionsIssue[];
 }> {}
 
 // projectRoot is guaranteed absolute, tsconfigPath either resolved or null.
@@ -34,7 +34,7 @@ export interface ResolvedArchitectureOptions
 function decodeOrThrow(raw: unknown): ArchitectureOptions {
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     const cached = decodedCache.get(raw);
-    if (cached) return cached;
+    if (cached) {return cached;}
   }
 
   return Either.match(decodeArchitectureOptions(raw), {
@@ -73,7 +73,7 @@ function validateDomainConfiguration(options: ArchitectureOptions): void {
   const ownershipPaths = new Map<string, string>();
   const compositionPaths = new Set<string>();
   for (const domain of options.domains) {
-    if (names.has(domain.name)) domainConfigurationError(`duplicate domain name '${domain.name}'`);
+    if (names.has(domain.name)) {domainConfigurationError(`duplicate domain name '${domain.name}'`);}
     names.add(domain.name);
     for (const root of domain.roots) {
       const normalized = validateRelativeArchitecturePath(root, `domain '${domain.name}' root`);

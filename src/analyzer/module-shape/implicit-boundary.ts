@@ -1,11 +1,11 @@
+import type { ProjectArchitectureGraph, SourceModule } from "../imports/index.js";
+import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 import {
   explicitFacadeModule,
   generatedModule,
   resolveImplementationModule,
   resolveProductionModule,
 } from "../project/index.js";
-import type { ProjectArchitectureGraph, SourceModule } from "../imports/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 
 export function implicitBoundaryModuleDiagnostics(
   graph: ProjectArchitectureGraph,
@@ -21,10 +21,10 @@ function implicitBoundaryModuleDiagnostic(
   options: ResolvedArchitectureOptions,
   module: SourceModule,
 ): readonly ArchitectureDiagnostic[] {
-  if (!implicitBoundaryCandidate(module, options)) return [];
+  if (!implicitBoundaryCandidate(module, options)) {return [];}
   const incomingFiles = incomingProductionFiles(graph, module);
   const outgoingFiles = outgoingImplementationFiles(graph, module);
-  if (!implicitBoundaryShape(incomingFiles, outgoingFiles, options)) return [];
+  if (!implicitBoundaryShape(incomingFiles, outgoingFiles, options)) {return [];}
   return [boundaryModuleDiagnostic(module, incomingFiles, outgoingFiles)];
 }
 

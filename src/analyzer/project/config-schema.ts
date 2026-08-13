@@ -146,17 +146,17 @@ const ArchitectureOptionsSchema = Schema.Struct({
   ),
 
   allowedPublicSubpaths: Schema.Array(SubpathAllowance).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<SubpathAllowance> => [] }),
+    Schema.optionalWith({ default: (): readonly SubpathAllowance[] => [] }),
   ),
   allowedTestPublicSubpaths: Schema.Array(SubpathAllowance).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<SubpathAllowance> => [] }),
+    Schema.optionalWith({ default: (): readonly SubpathAllowance[] => [] }),
   ),
 
   forbiddenSubpathSegments: Schema.Array(NonEmptyString).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<string> => [] }),
+    Schema.optionalWith({ default: (): readonly string[] => [] }),
   ),
   implementationPathSegments: Schema.Array(NonEmptyString).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<string> => [] }),
+    Schema.optionalWith({ default: (): readonly string[] => [] }),
   ),
 
   // Public surface caps.
@@ -199,13 +199,13 @@ const ArchitectureOptionsSchema = Schema.Struct({
     Schema.optionalWith({ default: () => 4 }),
   ),
   folderReadmeFileNames: Schema.Array(NonEmptyString).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<string> => ["README.md"] }),
+    Schema.optionalWith({ default: (): readonly string[] => ["README.md"] }),
   ),
   maxFolderImportDistance: PositiveInt.pipe(
     Schema.optionalWith({ default: () => 4 }),
   ),
   folderChildCountOverrides: Schema.Array(FolderChildLimitOverride).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<FolderChildLimitOverride> => [] }),
+    Schema.optionalWith({ default: (): readonly FolderChildLimitOverride[] => [] }),
   ),
 
   // Boundary-shape heuristics. These are sample-size guardrails; topology
@@ -233,33 +233,33 @@ const ArchitectureOptionsSchema = Schema.Struct({
   ),
 
   sharedFolderNames: Schema.Array(SharedFolderAllowance).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<SharedFolderAllowance> => [] }),
+    Schema.optionalWith({ default: (): readonly SharedFolderAllowance[] => [] }),
   ),
 
   facadeFiles: Schema.Array(FacadeFileAllowance).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<FacadeFileAllowance> => [] }),
+    Schema.optionalWith({ default: (): readonly FacadeFileAllowance[] => [] }),
   ),
 
   publicTypePackages: Schema.Array(PublicTypeAllowance).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<PublicTypeAllowance> => [] }),
+    Schema.optionalWith({ default: (): readonly PublicTypeAllowance[] => [] }),
   ),
 
   infrastructureTypePackages: Schema.Array(InfrastructureAllowance).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<InfrastructureAllowance> => [] }),
+    Schema.optionalWith({ default: (): readonly InfrastructureAllowance[] => [] }),
   ),
 
   layers: Schema.Array(LayerDefinition).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<LayerDefinition> => [] }),
+    Schema.optionalWith({ default: (): readonly LayerDefinition[] => [] }),
   ),
 
   domains: Schema.Array(DomainDefinition).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<DomainDefinition> => [] }),
+    Schema.optionalWith({ default: (): readonly DomainDefinition[] => [] }),
   ),
   domainOwnership: Schema.Array(DomainOwnership).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<DomainOwnership> => [] }),
+    Schema.optionalWith({ default: (): readonly DomainOwnership[] => [] }),
   ),
   compositionRoots: Schema.Array(CompositionRoot).pipe(
-    Schema.optionalWith({ default: (): ReadonlyArray<CompositionRoot> => [] }),
+    Schema.optionalWith({ default: (): readonly CompositionRoot[] => [] }),
   ),
 
   packageRuntime: PackageRuntime.pipe(

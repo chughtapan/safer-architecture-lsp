@@ -1,10 +1,10 @@
 import { afterEach, expect, it } from "vitest";
 import {
   analyzeResolvedArchitecture,
-  resolveArchitectureOptions,
   type ArchitectureOptionsInput,
+  resolveArchitectureOptions,
 } from "../src/index.js";
-import { makeFixture, type Fixture } from "./support/fixtures.js";
+import { type Fixture, makeFixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;
 

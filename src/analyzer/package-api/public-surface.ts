@@ -1,17 +1,14 @@
 import path from "node:path";
 import ts from "typescript";
-import { uniqueDiagnostics } from "../project/api/index.js";
 import {
-  exportedDeclarationName,
-  hasExportModifier,
-} from "../project/index.js";
-import { packageAllowedInPublicTypes, publicTypePackageForSpecifier } from "../type-surface/index.js";
-import type {
-  ArchitectureDiagnostic,
-  PackageJson,
-  ResolvedArchitectureOptions,
+  type ArchitectureDiagnostic,
+  type PackageJson,
+  type ResolvedArchitectureOptions, uniqueDiagnostics 
 } from "../project/api/index.js";
-import type { ProjectArchitectureGraph, SourceModule } from "../project/index.js";
+import { exportedDeclarationName, hasExportModifier,
+  type ProjectArchitectureGraph,
+  type SourceModule } from "../project/index.js";
+import { packageAllowedInPublicTypes, publicTypePackageForSpecifier } from "../type-surface/index.js";
 
 export function checkPublicSurface(
   graph: ProjectArchitectureGraph,
@@ -36,8 +33,8 @@ function exportStarBoundaryDiagnostics(
   graph: ProjectArchitectureGraph,
 ): readonly ArchitectureDiagnostic[] {
   return graph.modules.flatMap((module) => {
-    if (module.starExportCount === 0) return [];
-    if (!module.isPublic && !module.isIndex) return [];
+    if (module.starExportCount === 0) {return [];}
+    if (!module.isPublic && !module.isIndex) {return [];}
 
     return [
       {
@@ -93,7 +90,7 @@ function curatedPublicFacadeDiagnostics(
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   return graph.publicModules.flatMap((module) => {
-    if (!module.isIndex) return [];
+    if (!module.isIndex) {return [];}
     if (
       module.starExportCount === 0 &&
       module.localReexportCount < options.minPublicFacadeModules
@@ -124,7 +121,7 @@ function publicTestHelperLeakDiagnostics(
       const target = graph.modulesByFileName.get(edge.to);
       return target ? edge.kind === "reexport" && target.isTestLike : false;
     });
-    if (leakedEdges.length === 0) return [];
+    if (leakedEdges.length === 0) {return [];}
 
     return [
       {
@@ -147,7 +144,7 @@ function boundaryOwnedTypeDiagnostics(
 ): readonly ArchitectureDiagnostic[] {
   return graph.publicModules.flatMap((module) => {
     const sourceFile = sourceFileByName.get(module.fileName);
-    if (!sourceFile) return [];
+    if (!sourceFile) {return [];}
 
     const importedTypes = externalImportedIdentifiers(sourceFile, packageJson, options);
     if (importedTypes.size === 0) {
@@ -168,11 +165,11 @@ function externalReexportBoundaryOwnedDiagnostics(
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   return sourceFile.statements.flatMap((statement) => {
-    if (!ts.isExportDeclaration(statement)) return [];
-    if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) return [];
+    if (!ts.isExportDeclaration(statement)) {return [];}
+    if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) {return [];}
 
     const packageName = publicTypePackageForSpecifier(statement.moduleSpecifier.text, packageJson);
-    if (packageName === null || packageAllowedInPublicTypes(packageName, options)) return [];
+    if (packageName === null || packageAllowedInPublicTypes(packageName, options)) {return [];}
 
     return [
       {
@@ -193,10 +190,10 @@ function exportedDeclarationTypeDiagnostics(
   importedTypes: ReadonlyMap<string, string>,
 ): readonly ArchitectureDiagnostic[] {
   return sourceFile.statements.flatMap((statement) => {
-    if (!hasExportModifier(statement)) return [];
+    if (!hasExportModifier(statement)) {return [];}
 
     const exportedName = exportedDeclarationName(statement);
-    if (!exportedName) return [];
+    if (!exportedName) {return [];}
 
     const packages = importedPackagesReferencedByNode(statement, importedTypes);
     return [...packages].map((packageName) => ({
@@ -228,9 +225,9 @@ function addExternalImportedIdentifiers(
   packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): void {
-  if (!ts.isImportDeclaration(statement)) return;
+  if (!ts.isImportDeclaration(statement)) {return;}
   const packageName = externalPackageNameFromImport(statement, packageJson, options);
-  if (packageName === null || !statement.importClause) return;
+  if (packageName === null || !statement.importClause) {return;}
   addImportClauseIdentifiers(identifiers, statement.importClause, packageName);
 }
 
@@ -239,9 +236,9 @@ function externalPackageNameFromImport(
   packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
 ): string | null {
-  if (!ts.isStringLiteral(statement.moduleSpecifier)) return null;
+  if (!ts.isStringLiteral(statement.moduleSpecifier)) {return null;}
   const packageName = publicTypePackageForSpecifier(statement.moduleSpecifier.text, packageJson);
-  if (packageName === null) return null;
+  if (packageName === null) {return null;}
   return packageAllowedInPublicTypes(packageName, options) ? null : packageName;
 }
 
@@ -250,7 +247,7 @@ function addImportClauseIdentifiers(
   importClause: ts.ImportClause,
   packageName: string,
 ): void {
-  if (importClause.name) identifiers.set(importClause.name.text, packageName);
+  if (importClause.name) {identifiers.set(importClause.name.text, packageName);}
   if (importClause.namedBindings) {
     addNamedBindingIdentifiers(identifiers, importClause.namedBindings, packageName);
   }
@@ -279,7 +276,7 @@ function importedPackagesReferencedByNode(
   const visit = (current: ts.Node): void => {
     if (ts.isIdentifier(current)) {
       const packageName = importedTypes.get(current.text);
-      if (packageName) packages.add(packageName);
+      if (packageName) {packages.add(packageName);}
     }
     ts.forEachChild(current, visit);
   };

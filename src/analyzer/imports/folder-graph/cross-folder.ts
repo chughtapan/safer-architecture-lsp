@@ -1,12 +1,12 @@
 import type {
+  ArchitectureDiagnostic,
+  ResolvedArchitectureOptions,
+} from "../../project/api/index.js";
+import type {
   LocalModuleEdge,
   ProjectArchitectureGraph,
   SourceModule,
 } from "../project-graph/index.js";
-import type {
-  ArchitectureDiagnostic,
-  ResolvedArchitectureOptions,
-} from "../../project/api/index.js";
 
 interface ModulePair {
   readonly fromModule: SourceModule;
@@ -26,7 +26,7 @@ export function crossLayerImportDiagnostics(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
-  if (options.layers.length === 0) return [];
+  if (options.layers.length === 0) {return [];}
 
   return graph.localEdges.flatMap((edge) =>
     crossLayerImportDiagnostic(graph, options, edge)
@@ -39,9 +39,9 @@ function crossDomainSiblingImportDiagnostic(
   edge: LocalModuleEdge,
 ): readonly ArchitectureDiagnostic[] {
   const pair = importModulePair(graph, edge);
-  if (pair === null) return [];
-  if (!isCrossDomainSiblingPair(pair, options)) return [];
-  if (bothModulesHaveLayers(graph, pair)) return [];
+  if (pair === null) {return [];}
+  if (!isCrossDomainSiblingPair(pair, options)) {return [];}
+  if (bothModulesHaveLayers(graph, pair)) {return [];}
   return [crossDomainSiblingDiagnostic(pair)];
 }
 
@@ -51,10 +51,10 @@ function crossLayerImportDiagnostic(
   edge: LocalModuleEdge,
 ): readonly ArchitectureDiagnostic[] {
   const pair = importModulePair(graph, edge);
-  if (pair === null || pair.fromModule.isTestLike) return [];
+  if (pair === null || pair.fromModule.isTestLike) {return [];}
   const fromLayer = moduleLayer(graph, pair.fromModule);
   const toLayer = moduleLayer(graph, pair.toModule);
-  if (fromLayer === null || toLayer === null || fromLayer <= toLayer) return [];
+  if (fromLayer === null || toLayer === null || fromLayer <= toLayer) {return [];}
   return [crossLayerDiagnostic(pair, options, fromLayer, toLayer)];
 }
 
@@ -62,7 +62,7 @@ function importModulePair(
   graph: ProjectArchitectureGraph,
   edge: LocalModuleEdge,
 ): ModulePair | null {
-  if (edge.kind !== "import") return null;
+  if (edge.kind !== "import") {return null;}
   const fromModule = graph.modulesByFileName.get(edge.from);
   const toModule = graph.modulesByFileName.get(edge.to);
   return fromModule && toModule ? { fromModule, toModule } : null;
@@ -72,9 +72,9 @@ function isCrossDomainSiblingPair(
   pair: ModulePair,
   options: ResolvedArchitectureOptions,
 ): boolean {
-  if (pair.fromModule.isTestLike || pair.toModule.isTestLike) return false;
-  if (pair.fromModule.topFolder === "." || pair.toModule.topFolder === ".") return false;
-  if (pair.fromModule.topFolder === pair.toModule.topFolder) return false;
+  if (pair.fromModule.isTestLike || pair.toModule.isTestLike) {return false;}
+  if (pair.fromModule.topFolder === "." || pair.toModule.topFolder === ".") {return false;}
+  if (pair.fromModule.topFolder === pair.toModule.topFolder) {return false;}
   return !sharedFolder(options, pair.fromModule.topFolder) &&
     !sharedFolder(options, pair.toModule.topFolder);
 }

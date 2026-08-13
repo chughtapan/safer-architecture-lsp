@@ -1,14 +1,12 @@
 import ts from "typescript";
-import { uniqueDiagnostics } from "../project/api/index.js";
-import { publicApiSourceFiles } from "../project/api/index.js";
-import { buildExternalTypeReach } from "./external-reach.js";
 import type { ProjectArchitectureGraph } from "../project/index.js";
-import type {
-  ResolvedArchitectureOptions,
-  PackageJson,
-  ArchitectureDiagnostic,
-  ArchitectureSeverity,
+import {
+  type ArchitectureDiagnostic,
+  type ArchitectureSeverity,
+  type PackageJson,
+  publicApiSourceFiles, type ResolvedArchitectureOptions , uniqueDiagnostics 
 } from "../project/api/index.js";
+import { buildExternalTypeReach } from "./external-reach.js";
 
 const MAX_TYPE_DEPTH = 8;
 
@@ -52,11 +50,11 @@ function externalReExportDiagnostics(
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
   return sourceFile.statements.flatMap((statement) => {
-    if (!ts.isExportDeclaration(statement)) return [];
-    if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) return [];
+    if (!ts.isExportDeclaration(statement)) {return [];}
+    if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) {return [];}
 
     const packageName = publicTypePackageForSpecifier(statement.moduleSpecifier.text, packageJson);
-    if (packageName === null || packageAllowedInPublicTypes(packageName, options)) return [];
+    if (packageName === null || packageAllowedInPublicTypes(packageName, options)) {return [];}
 
     return [
       {
@@ -74,11 +72,11 @@ function externalReExportDiagnostics(
 }
 
 function packageNameFromSpecifier(specifier: string): string | null {
-  if (specifier.startsWith(".")) return null;
-  if (specifier.startsWith("node:")) return "node";
+  if (specifier.startsWith(".")) {return null;}
+  if (specifier.startsWith("node:")) {return "node";}
 
   const [firstSegment, secondSegment] = specifier.split("/");
-  if (!firstSegment) return null;
+  if (!firstSegment) {return null;}
   if (firstSegment.startsWith("@")) {
     return secondSegment ? `${firstSegment}/${secondSegment}` : firstSegment;
   }
@@ -93,19 +91,21 @@ function packageNameFromSpecifier(specifier: string): string | null {
  * (like a relative import) and returns null; one that maps only to a
  * bare package resolves to that vendor package name. Non-`#` specifiers
  * keep the plain package-name classification.
+ * @param specifier
+ * @param packageJson
  */
 export function publicTypePackageForSpecifier(
   specifier: string,
   packageJson: Pick<PackageJson, "imports">,
 ): string | null {
-  if (!specifier.startsWith("#")) return packageNameFromSpecifier(specifier);
+  if (!specifier.startsWith("#")) {return packageNameFromSpecifier(specifier);}
 
   const targets = resolveSubpathImportTargets(specifier, packageJson.imports);
   // Any relative target means the specifier resolves inside the package.
-  if (targets.some(isInternalImportTarget)) return null;
+  if (targets.some(isInternalImportTarget)) {return null;}
   for (const target of targets) {
     const vendor = packageNameFromSpecifier(target);
-    if (vendor !== null) return vendor;
+    if (vendor !== null) {return vendor;}
   }
   // An unmapped or unresolved `#` specifier is never a vendor package.
   return null;
@@ -120,11 +120,11 @@ function resolveSubpathImportTargets(
   imports: ReadonlyMap<string, readonly string[]>,
 ): readonly string[] {
   const exact = imports.get(specifier);
-  if (exact) return exact;
+  if (exact) {return exact;}
 
   for (const [key, targets] of imports) {
     const star = key.indexOf("*");
-    if (star === -1) continue;
+    if (star === -1) {continue;}
     const prefix = key.slice(0, star);
     const suffix = key.slice(star + 1);
     if (
@@ -140,7 +140,7 @@ function resolveSubpathImportTargets(
 
 function packageNameFromFileName(fileName: string): string | null {
   const normalized = fileName.replaceAll("\\", "/");
-  if (/\/node_modules\/typescript\/lib\/lib\..+\.d\.ts$/.test(normalized)) return null;
+  if (/\/node_modules\/typescript\/lib\/lib\..+\.d\.ts$/.test(normalized)) {return null;}
 
   const marker = "/node_modules/";
   const markerIndex = normalized.lastIndexOf(marker);
@@ -154,7 +154,7 @@ function packageNameFromFileName(fileName: string): string | null {
 }
 
 function normalizeTypePackageName(packageName: string): string {
-  if (!packageName.startsWith("@types/")) return packageName;
+  if (!packageName.startsWith("@types/")) {return packageName;}
 
   const withoutPrefix = packageName.slice("@types/".length);
   const scopedMatch = /^([^_]+)__([^_]+)$/.exec(withoutPrefix);
@@ -165,8 +165,8 @@ export function packageAllowedInPublicTypes(
   packageName: string,
   options: Pick<ResolvedArchitectureOptions, "packageRuntime" | "publicTypePackages">,
 ): boolean {
-  if (options.publicTypePackages.some((entry) => entry.package === packageName)) return true;
-  if (packageName !== "node") return false;
+  if (options.publicTypePackages.some((entry) => entry.package === packageName)) {return true;}
+  if (packageName !== "node") {return false;}
   return options.packageRuntime === "node";
 }
 
@@ -179,15 +179,15 @@ function exportedSignatureDiagnostics(
   exportedTypePackages: Map<ts.Type, ReadonlySet<string>>,
 ): readonly ArchitectureDiagnostic[] {
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
-  if (!moduleSymbol) return [];
+  if (!moduleSymbol) {return [];}
 
   return checker.getExportsOfModule(moduleSymbol).flatMap((exportedSymbol) => {
     const declaration = exportedSymbol.valueDeclaration ?? exportedSymbol.declarations?.[0];
-    if (!declaration) return [];
+    if (!declaration) {return [];}
     // An export whose declaring file cannot reach any external import
     // has an entirely package-local type: skip the deep walk that would
     // otherwise fully resolve it.
-    if (!mayReachExternal(declaration.getSourceFile())) return [];
+    if (!mayReachExternal(declaration.getSourceFile())) {return [];}
 
     const exportedType = typeForExportedSymbol(checker, exportedSymbol, declaration);
     const leakedPackages = externalPackagesFromType(
@@ -217,7 +217,7 @@ function publicTypeLeakSeverity(
   packageName: string,
   packageJson: PackageJson,
 ): ArchitectureSeverity {
-  if (packageName === "node") return "warn";
+  if (packageName === "node") {return "warn";}
   return packageJson.peerDependencies.has(packageName) ? "warn" : "error";
 }
 
@@ -230,7 +230,7 @@ function infraTypeLeakDiagnostic(
   packageName: string,
   options: ResolvedArchitectureOptions,
 ): readonly ArchitectureDiagnostic[] {
-  if (!options.infrastructureTypePackages.some((entry) => entry.package === packageName)) return [];
+  if (!options.infrastructureTypePackages.some((entry) => entry.package === packageName)) {return [];}
 
   return [
     {
@@ -265,18 +265,18 @@ function externalPackagesFromType(
   exportedTypePackages: Map<ts.Type, ReadonlySet<string>>,
 ): ReadonlySet<string> {
   const cached = exportedTypePackages.get(type);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {return cached;}
 
   const packages = new Set<string>();
   const seenTypes = new Set<ts.Type>();
 
   function visit(currentType: ts.Type, depth: number): void {
-    if (depth > MAX_TYPE_DEPTH || seenTypes.has(currentType)) return;
+    if (depth > MAX_TYPE_DEPTH || seenTypes.has(currentType)) {return;}
     seenTypes.add(currentType);
 
     const owningPackage = packageNameFromType(currentType);
     if (owningPackage) {
-      if (!packageAllowedInPublicTypes(owningPackage, options)) packages.add(owningPackage);
+      if (!packageAllowedInPublicTypes(owningPackage, options)) {packages.add(owningPackage);}
       visitTypeArguments(context, currentType, depth);
       return;
     }
@@ -306,8 +306,8 @@ function visitUnionMembers(
   type: ts.Type,
   depth: number,
 ): void {
-  if (!type.isUnionOrIntersection()) return;
-  for (const member of type.types) context.visit(member, depth + 1);
+  if (!type.isUnionOrIntersection()) {return;}
+  for (const member of type.types) {context.visit(member, depth + 1);}
 }
 
 function visitSignatures(
@@ -319,7 +319,7 @@ function visitSignatures(
     ...type.getCallSignatures(),
     ...type.getConstructSignatures(),
   ];
-  for (const signature of signatures) visitSignature(context, signature, depth);
+  for (const signature of signatures) {visitSignature(context, signature, depth);}
 }
 
 function visitSignature(
@@ -378,11 +378,11 @@ function packageNameFromType(type: ts.Type): string | null {
 }
 
 function resolvePackageNameFromSymbol(symbol: ts.Symbol | undefined): string | null {
-  if (symbol === undefined) return null;
+  if (symbol === undefined) {return null;}
   const declarations = symbol.getDeclarations() ?? [];
   for (const declaration of declarations) {
     const packageName = packageNameFromFileName(declaration.getSourceFile().fileName);
-    if (packageName !== null) return packageName;
+    if (packageName !== null) {return packageName;}
   }
 
   return null;

@@ -1,8 +1,8 @@
 import path from "node:path";
 import ts from "typescript";
-import { replaceKnownExtension, SOURCE_EXTENSIONS, withTrailingSeparator } from "./source-paths.js";
-import { collectPackageExportEntries } from "./package-exports/index.js";
 import type { PackageJson, ResolvedArchitectureOptions } from "./diagnostics/index.js";
+import { collectPackageExportEntries } from "./package-exports/index.js";
+import { replaceKnownExtension, SOURCE_EXTENSIONS, withTrailingSeparator } from "./source-paths.js";
 
 const PUBLIC_ENTRYPOINT_CANDIDATES = [
   "src/index.ts",
@@ -18,7 +18,7 @@ export function createProgram(
   const configPath =
     options.tsconfigPath ??
     ts.findConfigFile(options.projectRoot, ts.sys.fileExists, "tsconfig.json");
-  if (!configPath) return null;
+  if (!configPath) {return null;}
 
   const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
   const parsed = ts.parseJsonConfigFileContent(
@@ -26,7 +26,7 @@ export function createProgram(
     ts.sys,
     path.dirname(configPath),
   );
-  if (parsed.errors.length > 0) return null;
+  if (parsed.errors.length > 0) {return null;}
 
   // A tsconfig found above the workspace root may enumerate a whole
   // monorepo; scope the ROOT file set to this workspace so each engine
@@ -50,6 +50,7 @@ export function createProgram(
  * symbols but does not need to validate dependency declarations. These
  * are isolation safeguards; root-file scoping reduces cold cost, while
  * previous-program reuse speeds incremental rebuilds.
+ * @param base
  */
 function analysisOptions(base: ts.CompilerOptions): ts.CompilerOptions {
   const inherited = { ...base };
@@ -146,7 +147,7 @@ export function publicApiSourceFiles(
     projectFiles.map((sourceFile) => [path.resolve(sourceFile.fileName), sourceFile] as const),
   );
   const publicFiles = packageJsonPublicFiles(packageJson, options.projectRoot, byPath);
-  if (publicFiles.size === 0) addEntrypointPublicFiles(publicFiles, options.projectRoot, byPath);
+  if (publicFiles.size === 0) {addEntrypointPublicFiles(publicFiles, options.projectRoot, byPath);}
   return [...publicFiles];
 }
 
@@ -159,7 +160,7 @@ function packageJsonPublicFiles(
   for (const entry of collectPackageExportEntries(packageJson)) {
     const sourcePath = sourcePathForPackageTarget(entry.targetPath, projectRoot, byPath);
     const sourceFile = sourcePath ? byPath.get(sourcePath) : undefined;
-    if (sourceFile) publicFiles.add(sourceFile);
+    if (sourceFile) {publicFiles.add(sourceFile);}
   }
   return publicFiles;
 }
@@ -171,7 +172,7 @@ function addEntrypointPublicFiles(
 ): void {
   for (const candidate of PUBLIC_ENTRYPOINT_CANDIDATES) {
     const sourceFile = byPath.get(path.resolve(projectRoot, candidate));
-    if (sourceFile) publicFiles.add(sourceFile);
+    if (sourceFile) {publicFiles.add(sourceFile);}
   }
 }
 

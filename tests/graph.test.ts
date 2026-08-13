@@ -63,7 +63,7 @@ it("handles a large SCC without exhausting the JavaScript stack", () => {
   const nodes = Array.from({ length: size }, (_, index) => `node-${String(index).padStart(5, "0")}`);
   const edges: TestEdge[] = nodes.map((node, index) => ({
     from: node,
-    to: nodes[(index + 1) % size] as string,
+    to: nodes[(index + 1) % size],
     label: `edge-${index}`,
   }));
   const graph = makeDirectedGraph(nodes, edges);

@@ -1,13 +1,13 @@
-import {
-  explicitFacadeModule,
-  generatedModule,
-} from "../project/index.js";
 import type {
   ExportConsumer,
   ProjectArchitectureGraph,
   SourceModule,
 } from "../imports/index.js";
 import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
+import {
+  explicitFacadeModule,
+  generatedModule,
+} from "../project/index.js";
 
 const MAX_EXPORTED_SYMBOLS = 2;
 const MAX_TOP_LEVEL_STATEMENTS = 5;
@@ -26,12 +26,12 @@ function trivialSinkFileDiagnostic(
   options: ResolvedArchitectureOptions,
   module: SourceModule,
 ): readonly ArchitectureDiagnostic[] {
-  if (!sinkCandidate(module, options)) return [];
-  if (!moduleHasTrivialSurface(module)) return [];
+  if (!sinkCandidate(module, options)) {return [];}
+  if (!moduleHasTrivialSurface(module)) {return [];}
   const consumers = graph.exportConsumersByFileName.get(module.fileName) ?? [];
   const uniqueConsumerFile = soleConsumerFile(consumers);
-  if (uniqueConsumerFile === null) return [];
-  if (consumersOnlyReexport(consumers)) return [];
+  if (uniqueConsumerFile === null) {return [];}
+  if (consumersOnlyReexport(consumers)) {return [];}
   return [singleConsumerDiagnostic(module, uniqueConsumerFile, graph)];
 }
 
@@ -39,38 +39,38 @@ function sinkCandidate(
   module: SourceModule,
   options: ResolvedArchitectureOptions,
 ): boolean {
-  if (module.isTestLike) return false;
-  if (module.isIndex) return false;
-  if (module.isPublic) return false;
-  if (generatedModule(module)) return false;
-  if (explicitFacadeModule(module, options)) return false;
+  if (module.isTestLike) {return false;}
+  if (module.isIndex) {return false;}
+  if (module.isPublic) {return false;}
+  if (generatedModule(module)) {return false;}
+  if (explicitFacadeModule(module, options)) {return false;}
   return true;
 }
 
 function moduleHasTrivialSurface(module: SourceModule): boolean {
-  if (module.exportedSymbolCount === 0) return false;
-  if (module.exportedSymbolCount > MAX_EXPORTED_SYMBOLS) return false;
-  if (module.topLevelStatementCount > MAX_TOP_LEVEL_STATEMENTS) return false;
+  if (module.exportedSymbolCount === 0) {return false;}
+  if (module.exportedSymbolCount > MAX_EXPORTED_SYMBOLS) {return false;}
+  if (module.topLevelStatementCount > MAX_TOP_LEVEL_STATEMENTS) {return false;}
   return !isPureBarrel(module);
 }
 
 function isPureBarrel(module: SourceModule): boolean {
-  if (module.exportedSymbolCount === 0) return false;
+  if (module.exportedSymbolCount === 0) {return false;}
   return (
     module.localReexportCount + module.starExportCount === module.exportedSymbolCount
   );
 }
 
 function soleConsumerFile(consumers: readonly ExportConsumer[]): string | null {
-  if (consumers.length === 0) return null;
+  if (consumers.length === 0) {return null;}
   const unique = new Set(consumers.map((consumer) => consumer.consumerFile));
-  if (unique.size !== 1) return null;
+  if (unique.size !== 1) {return null;}
   const [first] = unique;
   return first ?? null;
 }
 
 function consumersOnlyReexport(consumers: readonly ExportConsumer[]): boolean {
-  if (consumers.length === 0) return false;
+  if (consumers.length === 0) {return false;}
   return consumers.every((consumer) => consumer.kind === "reexport");
 }
 

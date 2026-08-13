@@ -1,14 +1,17 @@
 // safer-arch-ignore no-trivial-sink-file: module SCC policy stays isolated from graph construction so the typed graph primitive remains reusable for domains and packages.
 import path from "node:path";
+import type { ArchitectureDiagnostic } from "../project/api/index.js";
+import type { ProjectArchitectureGraph } from "../project/index.js";
 import {
   canonicalCyclePath,
   cyclicStronglyConnectedComponents,
   makeDirectedGraph,
 } from "../graph/index.js";
-import type { ArchitectureDiagnostic } from "../project/api/index.js";
-import type { ProjectArchitectureGraph } from "../project/index.js";
 
-/** Report one stable diagnostic for each production module SCC. */
+/**
+ * Report one stable diagnostic for each production module SCC.
+ * @param graph
+ */
 export function moduleCycleDiagnostics(
   graph: ProjectArchitectureGraph,
 ): readonly ArchitectureDiagnostic[] {

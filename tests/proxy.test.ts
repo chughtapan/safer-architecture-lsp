@@ -8,12 +8,12 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import { FrameDecoder, encodePacket, type Message } from "../src/proxy/framing.js";
 import { parseBackendSpecs } from "../src/proxy/config.js";
+import { encodePacket, FrameDecoder, type Message } from "../src/proxy/framing.js";
 
 const PACKAGE_VERSION: string = (
   createRequire(import.meta.url)("../package.json") as { version: string }
@@ -108,7 +108,7 @@ class ProxyClient {
     this.child.stdout?.on("data", (chunk: Buffer) => {
       this.decoder.push(chunk);
       try {
-        for (const message of this.decoder.drain()) this.deliver(message);
+        for (const message of this.decoder.drain()) {this.deliver(message);}
       } catch {
         // stdout framing errors are surfaced by whatever assertion is waiting
       }
@@ -134,11 +134,11 @@ class ProxyClient {
 
   next(timeout = 4000): Promise<Message> {
     const buffered = this.pending.shift();
-    if (buffered) return Promise.resolve(buffered);
+    if (buffered) {return Promise.resolve(buffered);}
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         const index = this.waiters.findIndex((w) => w.timer === timer);
-        if (index >= 0) this.waiters.splice(index, 1);
+        if (index >= 0) {this.waiters.splice(index, 1);}
         reject(new Error("timeout waiting for proxy message"));
       }, timeout);
       this.waiters.push({ resolve, timer });
@@ -153,7 +153,7 @@ class ProxyClient {
     for (let i = 0; i < limit; i += 1) {
       const message = await this.next();
       all.push(message);
-      if (predicate(message, all)) return all;
+      if (predicate(message, all)) {return all;}
     }
     throw new Error("expected proxy message was not observed");
   }
@@ -163,18 +163,18 @@ class ProxyClient {
       const message = await this.next(ms);
       throw new Error(`unexpected proxy message: ${JSON.stringify(message)}`);
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("timeout")) return;
+      if (error instanceof Error && error.message.startsWith("timeout")) {return;}
       throw error;
     }
   }
 
   waitExit(): Promise<number> {
-    if (this.child.exitCode !== null) return Promise.resolve(this.child.exitCode);
-    return new Promise((resolve) => this.child.on("exit", (code) => resolve(code ?? -1)));
+    if (this.child.exitCode !== null) {return Promise.resolve(this.child.exitCode);}
+    return new Promise((resolve) => this.child.on("exit", (code) => { resolve(code ?? -1); }));
   }
 
   dispose(): void {
-    if (this.child.exitCode === null) this.child.kill("SIGKILL");
+    if (this.child.exitCode === null) {this.child.kill("SIGKILL");}
   }
 }
 
@@ -263,7 +263,7 @@ describe("multiplexing primary and diagnostics sidecar", () => {
     expect(new Set(routed.map((item) => item.id)).size).toBe(2);
     for (const request of routed) {
       const section = (request.params as { items: Array<{ section: string }> }).items[0].section;
-      client.send({ jsonrpc: "2.0", id: request.id as string, result: [section] });
+      client.send({ jsonrpc: "2.0", id: request.id, result: [section] });
     }
     const routedLogs = await client.collectUntil(
       (_m, all) =>

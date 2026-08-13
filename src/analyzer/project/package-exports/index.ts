@@ -22,8 +22,8 @@ export function collectPackageExportEntries(
   }
 
   const entries: PackageExportEntry[] = [];
-  if (packageJson.main) entries.push({ publicPath: ".", targetPath: packageJson.main });
-  if (packageJson.types) entries.push({ publicPath: ".", targetPath: packageJson.types });
+  if (packageJson.main) {entries.push({ publicPath: ".", targetPath: packageJson.main });}
+  if (packageJson.types) {entries.push({ publicPath: ".", targetPath: packageJson.types });}
   return entries;
 }
 
@@ -41,11 +41,11 @@ export function collectExportsValue(
   value: unknown,
   publicPath: string,
 ): readonly PackageExportEntry[] {
-  if (typeof value === "string") return [{ publicPath, targetPath: value }];
+  if (typeof value === "string") {return [{ publicPath, targetPath: value }];}
   if (Array.isArray(value)) {
     return value.flatMap((item) => collectExportsValue(item, publicPath));
   }
-  if (value === null || typeof value !== "object") return [];
+  if (value === null || typeof value !== "object") {return [];}
 
   const entries = Object.entries(value);
   const hasSubpathKeys = entries.some(([key]) => key === "." || key.startsWith("./"));

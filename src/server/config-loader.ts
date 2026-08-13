@@ -9,7 +9,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { resolveArchitectureOptions, type ArchitectureOptionsInput } from "../analyzer/project/api/index.js";
+import { type ArchitectureOptionsInput, resolveArchitectureOptions } from "../analyzer/project/api/index.js";
 
 export const CONFIG_FILE_NAME = "safer-architecture.config.json";
 

@@ -1,10 +1,10 @@
 import path from "node:path";
 import ts from "typescript";
-import { projectSourceFiles } from "../project/api/index.js";
 import type {
   ProjectArchitectureGraph,
   SourceModule,
 } from "../project/index.js";
+import { projectSourceFiles } from "../project/api/index.js";
 
 interface FileReach {
   readonly hasExternal: boolean;
@@ -24,6 +24,9 @@ interface FileReach {
  * targeted syntax scanning covers constructs that graph intentionally
  * does not model. Files outside the project SourceFile identity set
  * always answer true — a vendor re-export must never be skipped.
+ * @param program
+ * @param graph
+ * @param externalPackageForSpecifier
  */
 export function buildExternalTypeReach(
   program: ts.Program,
@@ -33,7 +36,7 @@ export function buildExternalTypeReach(
   // Ambient globals (e.g. `@types/node`'s `Buffer`) leak into a type
   // without any import, so the import closure cannot prove a file safe:
   // fall back to walking every export.
-  if (hasUntrackedAmbientGlobals(program)) return () => true;
+  if (hasUntrackedAmbientGlobals(program)) {return () => true;}
 
   const projectFiles = projectSourceFiles(program, graph.projectRoot);
   const checker = program.getTypeChecker();
@@ -69,6 +72,8 @@ export function buildExternalTypeReach(
  * mark backwards along relative-import edges to a fixpoint. Reverse
  * multi-source reachability is cycle-safe, unlike depth-first memoization
  * with an on-stack guard.
+ * @param projectFiles
+ * @param scanned
  */
 function markReachesExternal(
   projectFiles: readonly ts.SourceFile[],
@@ -78,8 +83,8 @@ function markReachesExternal(
   for (const file of projectFiles) {
     for (const target of scanned.get(file)?.edges ?? []) {
       const list = importers.get(target);
-      if (list) list.push(file);
-      else importers.set(target, [file]);
+      if (list) {list.push(file);}
+      else {importers.set(target, [file]);}
     }
   }
 
@@ -94,7 +99,7 @@ function markReachesExternal(
   while (queue.length > 0) {
     const target = queue.pop() as ts.SourceFile;
     for (const importer of importers.get(target) ?? []) {
-      if (marked.has(importer)) continue;
+      if (marked.has(importer)) {continue;}
       marked.add(importer);
       queue.push(importer);
     }
@@ -108,6 +113,7 @@ function markReachesExternal(
  * augmentations, and UMD `export as namespace` declarations. Any one of
  * them defeats a per-file import-closure proof, so disable the fast path
  * for the whole Program.
+ * @param program
  */
 function hasUntrackedAmbientGlobals(program: ts.Program): boolean {
   for (const sourceFile of program.getSourceFiles()) {
@@ -117,13 +123,13 @@ function hasUntrackedAmbientGlobals(program: ts.Program): boolean {
     ) {
       continue;
     }
-    if (!ts.isExternalModule(sourceFile)) return true;
-    if (containsGlobalAugmentation(sourceFile)) return true;
+    if (!ts.isExternalModule(sourceFile)) {return true;}
+    if (containsGlobalAugmentation(sourceFile)) {return true;}
     // A module augmentation can merge vendor-owned members into a
     // declaration in another file without creating a graph edge back to
     // that declaration. Its target is semantic, so any augmentation
     // anywhere in the Program invalidates the per-file proof.
-    if (containsStringLiteralModuleDeclaration(sourceFile)) return true;
+    if (containsStringLiteralModuleDeclaration(sourceFile)) {return true;}
   }
   return false;
 }
@@ -141,13 +147,13 @@ function statementsContainGlobalAugmentation(
   statements: readonly ts.Statement[],
 ): boolean {
   for (const statement of statements) {
-    if (ts.isNamespaceExportDeclaration(statement)) return true;
-    if (!ts.isModuleDeclaration(statement)) continue;
-    if ((statement.flags & ts.NodeFlags.GlobalAugmentation) !== 0) return true;
+    if (ts.isNamespaceExportDeclaration(statement)) {return true;}
+    if (!ts.isModuleDeclaration(statement)) {continue;}
+    if ((statement.flags & ts.NodeFlags.GlobalAugmentation) !== 0) {return true;}
 
     let body = statement.body;
     while (body && ts.isModuleDeclaration(body)) {
-      if ((body.flags & ts.NodeFlags.GlobalAugmentation) !== 0) return true;
+      if ((body.flags & ts.NodeFlags.GlobalAugmentation) !== 0) {return true;}
       body = body.body;
     }
     if (
@@ -182,10 +188,10 @@ function graphFileReach(
     }
 
     const target = byPath.get(edge.to);
-    if (target) edges.push(target);
+    if (target) {edges.push(target);}
     // If the canonical edge cannot be joined back to this Program, its
     // closure is uncertain. Force the full semantic walk.
-    else hasExternal = true;
+    else {hasExternal = true;}
   }
 
   for (const edge of module.externalEdges) {
@@ -210,8 +216,8 @@ function graphFileReach(
     }
     for (const checkerTarget of checkerTargets) {
       const target = byPath.get(checkerTarget);
-      if (target) edges.push(target);
-      else hasExternal = true;
+      if (target) {edges.push(target);}
+      else {hasExternal = true;}
     }
   }
 
@@ -225,6 +231,7 @@ function graphFileReach(
  * forces the semantic walk. This also covers relative and `#` forms:
  * without a canonical edge for them, their transitive closure cannot be
  * proven package-local.
+ * @param file
  */
 function hasNonStatementModuleReference(file: ts.SourceFile): boolean {
   if (
@@ -240,7 +247,7 @@ function hasNonStatementModuleReference(file: ts.SourceFile): boolean {
 
   let found = false;
   const visit = (node: ts.Node): void => {
-    if (found) return;
+    if (found) {return;}
     const jsDocTags = ts.getJSDocTags(node);
     if (jsDocTags.some((tag) => ts.isJSDocImportTag(tag))) {
       found = true;
@@ -250,16 +257,16 @@ function hasNonStatementModuleReference(file: ts.SourceFile): boolean {
     const jsDocType = ts.getJSDocType(node);
     if (jsDocType) {
       visit(jsDocType);
-      if (found) return;
+      if (found) {return;}
     }
     const jsDocReturnType = ts.getJSDocReturnType(node);
     if (jsDocReturnType) {
       visit(jsDocReturnType);
-      if (found) return;
+      if (found) {return;}
     }
     for (const tag of jsDocTags) {
       visit(tag);
-      if (found) return;
+      if (found) {return;}
     }
 
     if (ts.isImportTypeNode(node)) {
@@ -306,6 +313,9 @@ function isJavaScriptSourceFile(file: ts.SourceFile): boolean {
  * and malformed specifiers; those are not proof of a package-local
  * closure, so they must conservatively force the semantic walk. Resolution
  * itself remains owned by the graph.
+ * @param file
+ * @param module
+ * @param checker
  */
 function hasUncertainStatementModuleReference(
   file: ts.SourceFile,
@@ -329,9 +339,9 @@ function hasUncertainStatementModuleReference(
       (ts.isExportDeclaration(statement) && statement.moduleSpecifier)
         ? statement.moduleSpecifier
         : undefined;
-    if (moduleSpecifier === undefined) continue;
-    if (!ts.isStringLiteral(moduleSpecifier)) return true;
-    if (!representedSpecifiers.has(moduleSpecifier.text)) return true;
+    if (moduleSpecifier === undefined) {continue;}
+    if (!ts.isStringLiteral(moduleSpecifier)) {return true;}
+    if (!representedSpecifiers.has(moduleSpecifier.text)) {return true;}
 
     const graphTargets = localTargetsBySpecifier.get(moduleSpecifier.text);
     if (
@@ -349,6 +359,9 @@ function hasUncertainStatementModuleReference(
  * small path resolver can disagree with TypeScript when extension
  * substitution, moduleSuffixes, or rootDirs are in play. Such a mismatch
  * invalidates the graph as a proof of locality, so fail open.
+ * @param moduleSpecifier
+ * @param graphTargets
+ * @param checker
  */
 function moduleSpecifierMatchesGraphTarget(
   moduleSpecifier: ts.StringLiteral,
@@ -356,16 +369,16 @@ function moduleSpecifierMatchesGraphTarget(
   checker: ts.TypeChecker,
 ): boolean {
   const symbol = checker.getSymbolAtLocation(moduleSpecifier);
-  if (!symbol?.declarations?.length) return false;
+  if (!symbol?.declarations?.length) {return false;}
 
   const checkerTargets = new Set(
     symbol.declarations.map((declaration) =>
       path.resolve(declaration.getSourceFile().fileName)
     ),
   );
-  if (checkerTargets.size !== graphTargets.size) return false;
+  if (checkerTargets.size !== graphTargets.size) {return false;}
   for (const target of checkerTargets) {
-    if (!graphTargets.has(target)) return false;
+    if (!graphTargets.has(target)) {return false;}
   }
   return true;
 }
@@ -394,7 +407,7 @@ function checkerTargetsForSpecifier(
 
     found = true;
     const symbol = checker.getSymbolAtLocation(moduleSpecifier);
-    if (!symbol?.declarations?.length) return null;
+    if (!symbol?.declarations?.length) {return null;}
     for (const declaration of symbol.declarations) {
       targets.add(path.resolve(declaration.getSourceFile().fileName));
     }
@@ -411,12 +424,12 @@ function statementsContainStringLiteralModuleDeclaration(
   statements: readonly ts.Statement[],
 ): boolean {
   for (const statement of statements) {
-    if (!ts.isModuleDeclaration(statement)) continue;
-    if (ts.isStringLiteral(statement.name)) return true;
+    if (!ts.isModuleDeclaration(statement)) {continue;}
+    if (ts.isStringLiteral(statement.name)) {return true;}
 
     let body = statement.body;
     while (body && ts.isModuleDeclaration(body)) {
-      if (ts.isStringLiteral(body.name)) return true;
+      if (ts.isStringLiteral(body.name)) {return true;}
       body = body.body;
     }
     if (

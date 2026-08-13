@@ -18,11 +18,11 @@
  * workspace's engine in place (child-Scope teardown, no watcher leak).
  */
 
+import { watch as chokidarWatch, type FSWatcher } from "chokidar";
+import { Deferred, Effect, Ref, Scope, Stream } from "effect";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { watch as chokidarWatch, type FSWatcher } from "chokidar";
-import { Deferred, Effect, Ref, Scope, Stream } from "effect";
 import {
   type Connection,
   type Diagnostic,
@@ -32,17 +32,17 @@ import {
   type PublishDiagnosticsParams,
   TextDocumentSyncKind,
 } from "vscode-languageserver";
+import type { WorkspaceEngine } from "./workspace-engine.js";
 import { clearWorkspaceCache } from "../analyzer/project/cache/index.js";
 import {
-  WORKSPACE_FILE_NAME,
   discoverWorkspace,
+  WORKSPACE_FILE_NAME,
   workspacePackageCycleDiagnostics,
 } from "../analyzer/workspace/index.js";
+import { CONFIG_FILE_NAME, loadWorkspaceConfig } from "./config-loader.js";
 import { groupByUri } from "./diagnostic-converter.js";
 import { type DocumentStore, makeDocumentStore } from "./document-store.js";
-import { type WorkspaceEngine } from "./workspace-engine.js";
-import { type WorkspaceRegistry, makeWorkspaceRegistry } from "./workspace-registry.js";
-import { CONFIG_FILE_NAME, loadWorkspaceConfig } from "./config-loader.js";
+import { makeWorkspaceRegistry, type WorkspaceRegistry } from "./workspace-registry.js";
 
 // Resolved at runtime relative to the compiled dist/server/ layout so the
 // advertised server version always matches the published package version.
@@ -108,10 +108,10 @@ const findEngineForUri = (
     // to the most specific one.
     let best: { root: string; len: number } | null = null;
     for (const root of roots) {
-      if (!filePath.startsWith(root + path.sep) && filePath !== root) continue;
-      if (best === null || root.length > best.len) best = { root, len: root.length };
+      if (!filePath.startsWith(root + path.sep) && filePath !== root) {continue;}
+      if (best === null || root.length > best.len) {best = { root, len: root.length };}
     }
-    if (best === null) return null;
+    if (best === null) {return null;}
     return yield* registry.findByProjectRoot(best.root);
   });
 
@@ -139,7 +139,11 @@ const sendMergedDiagnostics = (
     yield* sendDiagnostics(deps, uri, diagnostics);
   });
 
-/** A file-level error diagnostic built outside the analyzer (config problems, engine crashes). */
+/**
+ * A file-level error diagnostic built outside the analyzer (config problems, engine crashes).
+ * @param code
+ * @param message
+ */
 const serverErrorDiagnostic = (code: string, message: string): Diagnostic => ({
   range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
   severity: DiagnosticSeverity.Error,
@@ -154,6 +158,8 @@ const serverErrorDiagnostic = (code: string, message: string): Diagnostic => ({
  * explicit empty publish so stale squiggles clear. Engine failures are
  * surfaced as an error diagnostic on the workspace's config path —
  * a crashed analysis must never present as "architecture clean".
+ * @param deps
+ * @param engine
  */
 const publishWorkspace = (
   deps: ServerDeps,
@@ -180,7 +186,7 @@ const publishWorkspace = (
           `Architecture analysis crashed for ${root}: ${String(outcome.error.cause ?? outcome.error.message)}. Until this is fixed the workspace has NO architecture coverage.`,
         ),
       ]);
-      yield* Effect.sync(() => log(`analysis failed for ${root}: ${outcome.error.message}`));
+      yield* Effect.sync(() => { log(`analysis failed for ${root}: ${outcome.error.message}`); });
     }
 
     const previous = (yield* Ref.get(deps.published)).get(root) ?? new Map();
@@ -190,7 +196,7 @@ const publishWorkspace = (
       next.set(root, nextUris);
       return next;
     });
-    for (const uri of affectedUris) yield* sendMergedDiagnostics(deps, uri);
+    for (const uri of affectedUris) {yield* sendMergedDiagnostics(deps, uri);}
     yield* Effect.sync(() => {
       if (outcome.ok) {
         log(
@@ -223,6 +229,8 @@ const handleInitialize = (): InitializeResult => ({
  * Register (or re-register) one workspace: load its config file, build
  * the engine, surface config problems as a diagnostic on the config
  * file, wire the invalidation stream, and publish the initial report.
+ * @param deps
+ * @param root
  */
 const attachProject = (
   deps: ServerDeps,
@@ -232,9 +240,9 @@ const attachProject = (
     const config = loadWorkspaceConfig(root);
     const engine = yield* deps.registry.register(root, config.options);
     yield* Effect.sync(() =>
-      log(
+      { log(
         `workspace ${root} registered (options: ${config.source}${config.problem === null ? "" : "; config INVALID, using defaults"})`,
-      ),
+      ); },
     );
 
     const configUri = pathToFileURL(config.configPath).toString();
@@ -256,7 +264,11 @@ const attachProject = (
     yield* publishWorkspace(deps, engine);
   });
 
-/** Tear the workspace down and clear everything it ever published. */
+/**
+ * Tear the workspace down and clear everything it ever published.
+ * @param deps
+ * @param root
+ */
 const detachProject = (deps: ServerDeps, root: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const previous = (yield* Ref.get(deps.published)).get(root) ?? new Map();
@@ -265,12 +277,17 @@ const detachProject = (deps: ServerDeps, root: string): Effect.Effect<void> =>
       next.delete(root);
       return next;
     });
-    for (const uri of previous.keys()) yield* sendMergedDiagnostics(deps, uri);
+    for (const uri of previous.keys()) {yield* sendMergedDiagnostics(deps, uri);}
     yield* deps.registry.unregister(root);
-    yield* Effect.sync(() => log(`workspace ${root} detached`));
+    yield* Effect.sync(() => { log(`workspace ${root} detached`); });
   });
 
-/** Rebuild the workspace's engine after a config change. */
+/**
+ * Rebuild the workspace's engine after a config change.
+ * @param deps
+ * @param root
+ * @param diagnosticsByUri
+ */
 const publishWorkspaceDiagnostics = (
   deps: ServerDeps,
   root: string,
@@ -284,7 +301,7 @@ const publishWorkspaceDiagnostics = (
       next.set(root, diagnosticsByUri);
       return next;
     });
-    for (const uri of affectedUris) yield* sendMergedDiagnostics(deps, uri);
+    for (const uri of affectedUris) {yield* sendMergedDiagnostics(deps, uri);}
   });
 
 const attachWorkspaceRoot = (
@@ -323,14 +340,14 @@ const attachWorkspaceRoot = (
     );
     yield* publishWorkspaceDiagnostics(deps, root, cycleDiagnostics);
     yield* Effect.sync(() =>
-      log(`workspace root ${root} attached with ${projectRoots.length} project(s)`),
+      { log(`workspace root ${root} attached with ${projectRoots.length} project(s)`); },
     );
   });
 
 const detachWorkspaceRoot = (deps: ServerDeps, root: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const projects = (yield* Ref.get(deps.workspaceProjects)).get(root) ?? [];
-    for (const projectRoot of projects) yield* detachProject(deps, projectRoot);
+    for (const projectRoot of projects) {yield* detachProject(deps, projectRoot);}
     yield* Ref.update(deps.workspaceProjects, (map) => {
       const next = new Map(map);
       next.delete(root);
@@ -349,9 +366,9 @@ const reloadWorkspaceRoot = (
   root: string,
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.gen(function* () {
-    yield* Effect.sync(() => log(`workspace metadata change detected for ${root}; reloading`));
+    yield* Effect.sync(() => { log(`workspace metadata change detected for ${root}; reloading`); });
     yield* detachWorkspaceRoot(deps, root);
-    if (!deps.configWatchers.has(root)) return;
+    if (!deps.configWatchers.has(root)) {return;}
     yield* attachWorkspaceRoot(deps, root);
     yield* syncWorkspaceWatcherPaths(deps, root);
   });
@@ -378,13 +395,13 @@ const syncWorkspaceWatcherPaths = (
 ): Effect.Effect<void> =>
   Effect.promise(async () => {
     const watcher = deps.configWatchers.get(root);
-    if (watcher === undefined) return;
+    if (watcher === undefined) {return;}
     const previous = deps.configWatcherPaths.get(root) ?? new Set<string>();
     const next = new Set(workspaceMetadataPaths(root));
     const removed = [...previous].filter((candidate) => !next.has(candidate));
     const added = [...next].filter((candidate) => !previous.has(candidate));
-    if (removed.length > 0) await watcher.unwatch(removed);
-    if (added.length > 0) watcher.add(added);
+    if (removed.length > 0) {await watcher.unwatch(removed);}
+    if (added.length > 0) {watcher.add(added);}
     deps.configWatcherPaths.set(root, next);
   });
 
@@ -394,11 +411,11 @@ function scheduleWorkspaceReload(
   runInScope: (effect: Effect.Effect<void, never, Scope.Scope>) => void,
 ): void {
   const previous = deps.reloadTimers.get(root);
-  if (previous !== undefined) clearTimeout(previous);
+  if (previous !== undefined) {clearTimeout(previous);}
   const timer = setTimeout(() => {
     deps.reloadTimers.delete(root);
     const lock = deps.reloadLocks.get(root);
-    if (lock === undefined || !deps.configWatchers.has(root)) return;
+    if (lock === undefined || !deps.configWatchers.has(root)) {return;}
     runInScope(lock.withPermits(1)(reloadWorkspaceRoot(deps, root)));
   }, 75);
   deps.reloadTimers.set(root, timer);
@@ -408,6 +425,9 @@ function scheduleWorkspaceReload(
  * Watch the workspace's config file so edits take effect without a
  * server restart. The watcher lives outside the engine's child scope
  * (it triggers engine replacement) and is closed on detach/shutdown.
+ * @param deps
+ * @param root
+ * @param runInScope
  */
 const watchWorkspaceConfig = (
   deps: ServerDeps,
@@ -421,7 +441,7 @@ const watchWorkspaceConfig = (
         ignoreInitial: true,
         persistent: true,
       });
-      const onEvent = (): void => scheduleWorkspaceReload(deps, root, runInScope);
+      const onEvent = (): void => { scheduleWorkspaceReload(deps, root, runInScope); };
       watcher.on("add", onEvent);
       watcher.on("change", onEvent);
       watcher.on("unlink", onEvent);
@@ -435,7 +455,7 @@ const watchWorkspaceConfig = (
     (watcher) =>
       Effect.promise(async () => {
         const timer = deps.reloadTimers.get(root);
-        if (timer !== undefined) clearTimeout(timer);
+        if (timer !== undefined) {clearTimeout(timer);}
         deps.reloadTimers.delete(root);
         deps.configWatcherPaths.delete(root);
         deps.reloadLocks.delete(root);
@@ -450,8 +470,8 @@ const workspaceRootsFrom = (params: InitializeParams): readonly string[] => {
   }
   // Plenty of clients still send only rootUri/rootPath; total silence
   // for them would be indistinguishable from a clean workspace.
-  if (params.rootUri) return [fileURLToPath(params.rootUri)];
-  if (params.rootPath) return [path.resolve(params.rootPath)];
+  if (params.rootUri) {return [fileURLToPath(params.rootUri)];}
+  if (params.rootPath) {return [path.resolve(params.rootPath)];}
   return [];
 };
 
@@ -464,7 +484,7 @@ const registerInitialWorkspaces = (
     const roots = workspaceRootsFrom(params);
     if (roots.length === 0) {
       yield* Effect.sync(() =>
-        log("no workspace folders, rootUri, or rootPath in initialize; nothing to analyze"),
+        { log("no workspace folders, rootUri, or rootPath in initialize; nothing to analyze"); },
       );
     }
     for (const root of roots) {
@@ -481,7 +501,7 @@ const handleDidOpen = (
     yield* deps.docs.open(td);
     yield* Deferred.await(deps.ready);
     const engine = yield* findEngineForUri(deps.registry, td.uri);
-    if (engine === null) return;
+    if (engine === null) {return;}
     yield* publishWorkspace(deps, engine);
   });
 
@@ -492,10 +512,10 @@ const handleDidSave = (
   Effect.gen(function* () {
     yield* Deferred.await(deps.ready);
     const engine = yield* findEngineForUri(deps.registry, uri);
-    if (engine === null) return;
+    if (engine === null) {return;}
     // Force-invalidate so the next lint sees the saved content, even
     // if the watcher is slower than our handler.
-    yield* Effect.sync(() => clearWorkspaceCache(engine.projectRoot));
+    yield* Effect.sync(() => { clearWorkspaceCache(engine.projectRoot); });
     yield* publishWorkspace(deps, engine);
   });
 
@@ -516,7 +536,7 @@ const setupTextHandlers = (deps: ServerDeps): void => {
 
   deps.connection.onDidChangeTextDocument((params) => {
     const last = params.contentChanges.at(-1);
-    if (last === undefined || !("text" in last)) return;
+    if (last === undefined || !("text" in last)) {return;}
     // Full sync: the last change carries the whole document.
     Effect.runFork(
       deps.docs.update(params.textDocument.uri, params.textDocument.version, last.text),
@@ -537,6 +557,8 @@ const setupTextHandlers = (deps: ServerDeps): void => {
  * Folder add/remove handling. Registered only when the client
  * advertised `workspace.workspaceFolders` support — the vscode
  * languageserver workspace proxy throws otherwise.
+ * @param deps
+ * @param runInScope
  */
 const setupWorkspaceFolderHandler = (
   deps: ServerDeps,
@@ -548,9 +570,9 @@ const setupWorkspaceFolderHandler = (
       const watcher = deps.configWatchers.get(root);
       deps.configWatchers.delete(root);
       const timer = deps.reloadTimers.get(root);
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {clearTimeout(timer);}
       deps.reloadTimers.delete(root);
-      if (watcher) void watcher.close();
+      if (watcher) {void watcher.close();}
       const lock = deps.reloadLocks.get(root);
       const detach = detachWorkspaceRoot(deps, root);
       runInScope(lock === undefined ? detach : lock.withPermits(1)(detach));
@@ -572,7 +594,7 @@ const setupWorkspaceFolderHandler = (
  * sends `exit` (or `shutdownRequested` fails closed on stdio loss); the
  * ambient `Scope` then releases every workspace engine before the
  * process ends, giving the protocol a real teardown path.
- * @param connection vscode-languageserver Connection (stdio in
+ * @param connection Vscode-languageserver Connection (stdio in
  * production, in-memory for tests).
  * @returns Effect that completes on protocol exit; requires a `Scope`.
  */
@@ -634,7 +656,7 @@ export const makeLspServer = (
 
     setupTextHandlers(deps);
 
-    yield* Effect.sync(() => connection.listen());
+    yield* Effect.sync(() => { connection.listen(); });
 
     // Poll for initialize to arrive, then register workspaces under
     // the ambient Scope so engines release on server shutdown.
@@ -647,7 +669,7 @@ export const makeLspServer = (
         }
         const params: InitializeParams = initParams;
         if (params.capabilities.workspace?.workspaceFolders === true) {
-          yield* Effect.sync(() => setupWorkspaceFolderHandler(deps, runInScope));
+          yield* Effect.sync(() => { setupWorkspaceFolderHandler(deps, runInScope); });
         }
         yield* registerInitialWorkspaces(deps, params, runInScope);
         yield* Deferred.succeed(ready, undefined);

@@ -1,11 +1,11 @@
-import {
-  generatedModule,
-} from "../project/index.js";
 import type {
   ProjectArchitectureGraph,
   SourceModule,
 } from "../imports/index.js";
 import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
+import {
+  generatedModule,
+} from "../project/index.js";
 
 const MIN_FAN_OUT = 15;
 const MIN_TOP_LEVEL_STATEMENTS = 20;
@@ -29,21 +29,21 @@ function fatOrchestratorDiagnostic(
   graph: ProjectArchitectureGraph,
   module: SourceModule,
 ): readonly ArchitectureDiagnostic[] {
-  if (!orchestratorCandidate(module)) return [];
+  if (!orchestratorCandidate(module)) {return [];}
   const fanOut = module.localEdges.length + module.externalEdges.length;
-  if (fanOut < MIN_FAN_OUT) return [];
-  if (module.topLevelStatementCount < MIN_TOP_LEVEL_STATEMENTS) return [];
+  if (fanOut < MIN_FAN_OUT) {return [];}
+  if (module.topLevelStatementCount < MIN_TOP_LEVEL_STATEMENTS) {return [];}
   const fanIn = uniqueConsumerCount(graph, module);
-  if (fanIn > MAX_FAN_IN) return [];
+  if (fanIn > MAX_FAN_IN) {return [];}
   return [fatOrchestratorReport(module, fanOut, fanIn)];
 }
 
 function orchestratorCandidate(module: SourceModule): boolean {
-  if (module.isTestLike) return false;
-  if (module.isIndex) return false;
-  if (module.isPublic) return false;
-  if (generatedModule(module)) return false;
-  if (isEntryPath(module.relativePath)) return false;
+  if (module.isTestLike) {return false;}
+  if (module.isIndex) {return false;}
+  if (module.isPublic) {return false;}
+  if (generatedModule(module)) {return false;}
+  if (isEntryPath(module.relativePath)) {return false;}
   return true;
 }
 

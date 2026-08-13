@@ -22,15 +22,15 @@ function parseContentLength(lines: string[], source: string): number {
   let found: number | null = null;
   for (const line of lines) {
     const separator = line.indexOf(":");
-    if (separator === -1) throw new ProtocolError(`${source}: invalid LSP header`);
+    if (separator === -1) {throw new ProtocolError(`${source}: invalid LSP header`);}
     const name = line.slice(0, separator).trim().toLowerCase();
-    if (name !== "content-length") continue;
-    if (found !== null) throw new ProtocolError(`${source}: duplicate Content-Length header`);
+    if (name !== "content-length") {continue;}
+    if (found !== null) {throw new ProtocolError(`${source}: duplicate Content-Length header`);}
     const value = line.slice(separator + 1).trim();
-    if (!/^\d+$/.test(value)) throw new ProtocolError(`${source}: invalid Content-Length header`);
+    if (!/^\d+$/.test(value)) {throw new ProtocolError(`${source}: invalid Content-Length header`);}
     found = Number(value);
   }
-  if (found === null) throw new ProtocolError(`${source}: missing or invalid Content-Length header`);
+  if (found === null) {throw new ProtocolError(`${source}: missing or invalid Content-Length header`);}
   return found;
 }
 
@@ -49,7 +49,7 @@ export class FrameDecoder {
   *drain(): Generator<Message> {
     for (;;) {
       const message = this.next();
-      if (message === null) return;
+      if (message === null) {return;}
       yield message;
     }
   }
@@ -62,7 +62,7 @@ export class FrameDecoder {
   private next(): Message | null {
     if (this.contentLength === null) {
       const headerEnd = this.buffer.indexOf(HEADER_SEPARATOR);
-      if (headerEnd === -1) return null;
+      if (headerEnd === -1) {return null;}
       const lines = this.buffer
         .subarray(0, headerEnd)
         .toString("ascii")
@@ -72,7 +72,7 @@ export class FrameDecoder {
       this.contentLength = parseContentLength(lines, this.source);
     }
 
-    if (this.buffer.length < this.contentLength) return null;
+    if (this.buffer.length < this.contentLength) {return null;}
     const body = this.buffer.subarray(0, this.contentLength);
     this.buffer = this.buffer.subarray(this.contentLength);
     this.contentLength = null;

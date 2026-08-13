@@ -7,25 +7,25 @@
 
 import path from "node:path";
 import ts from "typescript";
-import { collectModuleEdges } from "../edges.js";
-import { CachedModuleResolver } from "../specifier-resolution.js";
-import {
-  collectExportConsumers,
-  collectExportedSymbolNames,
-} from "../module-symbols.js";
-import { collectFolderEdges } from "../folder-edges.js";
+import type { LayerDefinition, PackageJson, ResolvedArchitectureOptions } from "../../project/api/index.js";
 import { publicApiFileNames } from "../../package-api/index.js";
 import {
+  type ExportConsumer,
   hasExportModifier,
   isStarExportDeclaration,
   isTestLikePath,
   normalizePath,
-  type ExportConsumer,
   type ProjectArchitectureGraph,
   type SourceModule,
 } from "../../project/index.js";
 import { withTrailingSeparator } from "../../project/source-paths.js";
-import type { LayerDefinition, PackageJson, ResolvedArchitectureOptions } from "../../project/api/index.js";
+import { collectModuleEdges } from "../edges.js";
+import { collectFolderEdges } from "../folder-edges.js";
+import {
+  collectExportConsumers,
+  collectExportedSymbolNames,
+} from "../module-symbols.js";
+import { CachedModuleResolver } from "../specifier-resolution.js";
 
 export type {
   FolderEdge,
@@ -47,6 +47,7 @@ export type {
  * @param options Resolved architecture options.
  * @param reportFile File path used as the diagnostic target when a
  * finding has no natural single file.
+ * @param compilerOptions
  * @returns The fully-populated project architecture graph.
  */
 export function buildProjectGraph(
@@ -113,9 +114,9 @@ export function buildProjectGraph(
  */
 function layerIndexFor(
   folder: string,
-  layers: ReadonlyArray<LayerDefinition>,
+  layers: readonly LayerDefinition[],
 ): number | null {
-  if (layers.length === 0) return null;
+  if (layers.length === 0) {return null;}
   const normalized = folder === "." ? "" : normalizePath(folder);
 
   let bestLayer: number | null = null;
@@ -127,7 +128,7 @@ function layerIndexFor(
       const matches =
         normalizedEntry === normalized ||
         (normalizedEntry !== "" && normalized.startsWith(`${normalizedEntry}/`));
-      if (!matches) continue;
+      if (!matches) {continue;}
       if (normalizedEntry.length > bestEntryLength) {
         bestEntryLength = normalizedEntry.length;
         bestLayer = layerIndex;
@@ -195,8 +196,8 @@ function sourceModuleFromSourceFile(
 
 function countNonImportTopLevelStatements(sourceFile: ts.SourceFile): number {
   return sourceFile.statements.reduce((count, statement) => {
-    if (ts.isImportDeclaration(statement)) return count;
-    if (ts.isImportEqualsDeclaration(statement)) return count;
+    if (ts.isImportDeclaration(statement)) {return count;}
+    if (ts.isImportEqualsDeclaration(statement)) {return count;}
     return count + 1;
   }, 0);
 }
@@ -216,15 +217,15 @@ function consumersByTargetFile(
 function countExportedSymbols(sourceFile: ts.SourceFile): number {
   return sourceFile.statements.reduce((count, statement) => {
     if (ts.isExportDeclaration(statement)) {
-      if (!statement.exportClause) return count + 1;
+      if (!statement.exportClause) {return count + 1;}
       if (ts.isNamedExports(statement.exportClause)) {
         return count + statement.exportClause.elements.length;
       }
       return count + 1;
     }
 
-    if (ts.isExportAssignment(statement)) return count + 1;
-    if (!hasExportModifier(statement)) return count;
+    if (ts.isExportAssignment(statement)) {return count + 1;}
+    if (!hasExportModifier(statement)) {return count;}
     if (ts.isVariableStatement(statement)) {
       return count + statement.declarationList.declarations.length;
     }

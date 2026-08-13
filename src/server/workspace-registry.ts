@@ -7,9 +7,9 @@
  * instead of at process exit.
  */
 
-import { Effect, Exit, ExecutionStrategy, Ref, Scope } from "effect";
-import { resolveArchitectureOptions, type ArchitectureOptionsInput } from "../analyzer/project/api/index.js";
-import { type WorkspaceEngine, makeWorkspaceEngine } from "./workspace-engine.js";
+import { Effect, ExecutionStrategy, Exit, Ref, Scope } from "effect";
+import { type ArchitectureOptionsInput, resolveArchitectureOptions } from "../analyzer/project/api/index.js";
+import { makeWorkspaceEngine, type WorkspaceEngine } from "./workspace-engine.js";
 
 interface EngineEntry {
   readonly engine: WorkspaceEngine;
@@ -71,7 +71,7 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
       mutex.withPermits(1)(Effect.gen(function* () {
         const map = yield* Ref.get(ref);
         const existing = map.get(projectRoot);
-        if (existing !== undefined) return existing.engine;
+        if (existing !== undefined) {return existing.engine;}
         const parent = yield* Effect.scope;
         const child = yield* Scope.fork(parent, ExecutionStrategy.sequential);
         const resolved = resolveArchitectureOptions({
@@ -89,7 +89,7 @@ export const makeWorkspaceRegistry = (): Effect.Effect<WorkspaceRegistry> =>
       mutex.withPermits(1)(Effect.gen(function* () {
         const map = yield* Ref.get(ref);
         const entry = map.get(projectRoot);
-        if (entry === undefined) return;
+        if (entry === undefined) {return;}
         yield* Ref.update(ref, (m) => removeEntry(m, projectRoot));
         yield* Scope.close(entry.scope, Exit.void);
       }));

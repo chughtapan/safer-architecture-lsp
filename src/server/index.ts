@@ -15,19 +15,19 @@
  *   and exits 2 instead of silently blocking on stdio.
  */
 
-import { createRequire } from "node:module";
-import fs from "node:fs";
-import path from "node:path";
 import { Effect } from "effect";
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
 import {
+  createConnection,
   ProposedFeatures,
   StreamMessageReader,
   StreamMessageWriter,
-  createConnection,
 } from "vscode-languageserver/node.js";
-import { makeLspServer } from "./lsp-server.js";
-import { CONFIG_FILE_NAME } from "./config-loader.js";
 import { WORKSPACE_FILE_NAME } from "../analyzer/workspace/index.js";
+import { CONFIG_FILE_NAME } from "./config-loader.js";
+import { makeLspServer } from "./lsp-server.js";
 import {
   analyzeWorkspaceRoot,
   type WorkspaceArchitectureReport,
@@ -92,13 +92,13 @@ function parseCheckFlags(args: readonly string[]): CheckFlags | null {
   let waivers = false;
   let sawRoot = false;
   for (const arg of args) {
-    if (arg === "--json") json = true;
-    else if (arg === "--waivers") waivers = true;
-    else if (arg.startsWith("--")) return null;
+    if (arg === "--json") {json = true;}
+    else if (arg === "--waivers") {waivers = true;}
+    else if (arg.startsWith("--")) {return null;}
     else if (!sawRoot) {
       root = path.resolve(arg);
       sawRoot = true;
-    } else return null;
+    } else {return null;}
   }
   return { root, json, waivers };
 }
@@ -147,7 +147,7 @@ function check(args: readonly string[]): void {
     (d) => d.ruleId === "architecture-analysis-unavailable",
   );
   if (unavailable.length > 0) {
-    for (const d of unavailable) process.stderr.write(`cannot analyze: ${d.message}\n`);
+    for (const d of unavailable) {process.stderr.write(`cannot analyze: ${d.message}\n`);}
     process.exit(2);
   }
 
@@ -179,7 +179,7 @@ function check(args: readonly string[]): void {
     );
   } else {
     printFindings(report, root);
-    if (waivers) printWaivers(report, root);
+    if (waivers) {printWaivers(report, root);}
     const fileCount = report.diagnosticsByFile.size;
     process.stdout.write(
       `safer-architecture check: ${report.diagnostics.length} finding(s) across ${fileCount} file(s), ${report.waivers.length} waiver(s), ${report.projects.length} project(s), options from ${report.projects.length === 1 ? report.projects[0].configSource : "workspace"} — ${root}\n`,

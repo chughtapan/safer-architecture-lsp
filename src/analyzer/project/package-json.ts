@@ -9,10 +9,10 @@ interface JsonObject {
 
 export function readPackageJson(projectRoot: string): PackageJson | null {
   const packageJsonPath = path.join(projectRoot, "package.json");
-  if (!fs.existsSync(packageJsonPath)) return null;
+  if (!fs.existsSync(packageJsonPath)) {return null;}
 
   const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as unknown;
-  if (!isJsonObject(parsed)) return null;
+  if (!isJsonObject(parsed)) {return null;}
 
   return {
     name: readString(parsed.name),
@@ -44,7 +44,7 @@ function readString(value: unknown): string | undefined {
 }
 
 function readStringMap(value: unknown): ReadonlyMap<string, string> {
-  if (!isJsonObject(value)) return new Map();
+  if (!isJsonObject(value)) {return new Map();}
 
   const entries = Object.entries(value).filter(
     (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -56,15 +56,16 @@ function readStringMap(value: unknown): ReadonlyMap<string, string> {
  * Parse the Node subpath-imports (`imports`) field into each `#` key's
  * flat list of leaf target strings, descending through condition maps
  * and arrays. Non-`#` keys are ignored (Node rejects them).
+ * @param value
  */
 function readImportsMap(value: unknown): ReadonlyMap<string, readonly string[]> {
-  if (!isJsonObject(value)) return new Map();
+  if (!isJsonObject(value)) {return new Map();}
 
-  const entries: [string, readonly string[]][] = [];
+  const entries: Array<[string, readonly string[]]> = [];
   for (const [key, target] of Object.entries(value)) {
-    if (!key.startsWith("#")) continue;
+    if (!key.startsWith("#")) {continue;}
     const leaves = collectExportsValue(target, key).map((entry) => entry.targetPath);
-    if (leaves.length > 0) entries.push([key, leaves]);
+    if (leaves.length > 0) {entries.push([key, leaves]);}
   }
   return new Map(entries);
 }

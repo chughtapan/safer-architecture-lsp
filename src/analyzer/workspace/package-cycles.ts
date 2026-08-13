@@ -1,10 +1,10 @@
+import type { ArchitectureDiagnostic } from "../project/diagnostics/index.js";
+import type { DiscoveredWorkspace, WorkspaceProject } from "./manifest.js";
 import { makeDirectedGraph } from "../graph/directed-graph.js";
 import {
   canonicalCyclePath,
   cyclicStronglyConnectedComponents,
 } from "../graph/strongly-connected-components.js";
-import type { ArchitectureDiagnostic } from "../project/diagnostics/index.js";
-import type { DiscoveredWorkspace, WorkspaceProject } from "./manifest.js";
 
 interface PackageEdge {
   readonly from: string;
@@ -14,12 +14,12 @@ interface PackageEdge {
 export function workspacePackageCycleDiagnostics(
   workspace: DiscoveredWorkspace,
 ): readonly ArchitectureDiagnostic[] {
-  if (workspace.manifestPath === null) return [];
+  if (workspace.manifestPath === null) {return [];}
   const byName = new Map(workspace.projects.map((project) => [project.name, project] as const));
   const edges: PackageEdge[] = [];
   for (const project of workspace.projects) {
     for (const dependency of project.runtimeDependencies) {
-      if (byName.has(dependency)) edges.push({ from: project.name, to: dependency });
+      if (byName.has(dependency)) {edges.push({ from: project.name, to: dependency });}
     }
   }
   const graph = makeDirectedGraph([...byName.keys()], edges);

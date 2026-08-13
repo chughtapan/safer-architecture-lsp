@@ -1,7 +1,7 @@
 import path from "node:path";
 import ts from "typescript";
-import type { CachedModuleResolver } from "./specifier-resolution.js";
 import type { ExportConsumer } from "../project/index.js";
+import type { CachedModuleResolver } from "./specifier-resolution.js";
 
 interface ImportTargetContext {
   readonly fromFile: string;
@@ -46,7 +46,7 @@ function addExportedSymbolNames(
     symbols.add("default");
     return;
   }
-  if (!hasExportModifier(statement)) return;
+  if (!hasExportModifier(statement)) {return;}
   addExportedDeclarationNames(symbols, statement);
 }
 
@@ -55,7 +55,7 @@ function addExportDeclarationNames(
   statement: ts.ExportDeclaration,
 ): void {
   const exportClause = statement.exportClause;
-  if (!exportClause) return;
+  if (!exportClause) {return;}
   if (ts.isNamespaceExport(exportClause)) {
     symbols.add(exportClause.name.text);
     return;
@@ -80,7 +80,7 @@ function addExportedDeclarationNames(
 }
 
 function addBindingName(symbols: Set<string>, name: ts.BindingName): void {
-  if (ts.isIdentifier(name)) symbols.add(name.text);
+  if (ts.isIdentifier(name)) {symbols.add(name.text);}
 }
 
 function namedImportConsumers(
@@ -97,9 +97,9 @@ function importDeclarationConsumers(
   statement: ts.Statement,
   resolver: CachedModuleResolver,
 ): readonly ExportConsumer[] {
-  if (!ts.isImportDeclaration(statement)) return [];
+  if (!ts.isImportDeclaration(statement)) {return [];}
   const context = importTargetContext(fromFile, statement, resolver);
-  if (context === null || !statement.importClause) return [];
+  if (context === null || !statement.importClause) {return [];}
   return importClauseConsumers(statement.importClause, context);
 }
 
@@ -108,9 +108,9 @@ function importTargetContext(
   statement: ts.ImportDeclaration,
   resolver: CachedModuleResolver,
 ): ImportTargetContext | null {
-  if (!ts.isStringLiteral(statement.moduleSpecifier)) return null;
+  if (!ts.isStringLiteral(statement.moduleSpecifier)) {return null;}
   const targetFile = resolver.resolveLocal(fromFile, statement.moduleSpecifier.text);
-  if (targetFile === null) return null;
+  if (targetFile === null) {return null;}
   return {
     fromFile: path.resolve(fromFile),
     targetFile,
@@ -159,12 +159,12 @@ function exportDeclarationConsumers(
   statement: ts.Statement,
   resolver: CachedModuleResolver,
 ): readonly ExportConsumer[] {
-  if (!ts.isExportDeclaration(statement)) return [];
-  if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) return [];
-  if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return [];
+  if (!ts.isExportDeclaration(statement)) {return [];}
+  if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) {return [];}
+  if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) {return [];}
 
   const targetFile = resolver.resolveLocal(fromFile, statement.moduleSpecifier.text);
-  if (targetFile === null) return [];
+  if (targetFile === null) {return [];}
 
   return statement.exportClause.elements.map((element) =>
     exportConsumer(
@@ -184,7 +184,7 @@ function namespaceImportConsumers(
   resolver: CachedModuleResolver,
 ): readonly ExportConsumer[] {
   const bindings = namespaceImportBindings(sourceFile, resolver);
-  if (bindings.size === 0) return [];
+  if (bindings.size === 0) {return [];}
   return namespaceMemberUses(sourceFile, bindings);
 }
 
@@ -205,10 +205,10 @@ function addNamespaceImportBinding(
   statement: ts.Statement,
   resolver: CachedModuleResolver,
 ): void {
-  if (!ts.isImportDeclaration(statement)) return;
+  if (!ts.isImportDeclaration(statement)) {return;}
   const context = importTargetContext(fromFile, statement, resolver);
   const namespaceImport = resolveNamespaceImportFromClause(statement.importClause);
-  if (context === null || namespaceImport === null) return;
+  if (context === null || namespaceImport === null) {return;}
   bindings.set(namespaceImport.name.text, {
     ...context,
     localName: namespaceImport.name.text,
@@ -229,7 +229,7 @@ function namespaceMemberUses(
   const consumers: ExportConsumer[] = [];
   const visit = (node: ts.Node): void => {
     const consumer = namespaceMemberConsumer(node, bindings);
-    if (consumer !== null) consumers.push(consumer);
+    if (consumer !== null) {consumers.push(consumer);}
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(sourceFile, visit);
@@ -240,8 +240,8 @@ function namespaceMemberConsumer(
   node: ts.Node,
   bindings: ReadonlyMap<string, NamespaceImportBinding>,
 ): ExportConsumer | null {
-  if (!ts.isPropertyAccessExpression(node)) return null;
-  if (!ts.isIdentifier(node.expression)) return null;
+  if (!ts.isPropertyAccessExpression(node)) {return null;}
+  if (!ts.isIdentifier(node.expression)) {return null;}
   const binding = bindings.get(node.expression.text);
   return binding === undefined
     ? null
@@ -292,7 +292,7 @@ function hasExportModifier(statement: ts.Statement): boolean {
 function exportedDeclarationName(statement: ts.Statement): string | null {
   for (const reader of DECLARATION_NAME_READERS) {
     const name = reader(statement);
-    if (name !== undefined) return name;
+    if (name !== undefined) {return name;}
   }
   return null;
 }

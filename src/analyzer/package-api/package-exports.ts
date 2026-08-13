@@ -1,9 +1,8 @@
-import { collectPackageExportEntries, stripKnownExtension } from "../project/api/index.js";
-import type {
-  ResolvedArchitectureOptions,
-  PackageExportEntry,
-  PackageJson,
-  ArchitectureDiagnostic,
+import {
+  type ArchitectureDiagnostic,
+  collectPackageExportEntries,
+  type PackageExportEntry,
+  type PackageJson, type ResolvedArchitectureOptions, stripKnownExtension 
 } from "../project/api/index.js";
 
 export function checkPackageExports(
@@ -45,12 +44,12 @@ function internalSubpathDiagnostics(
   reportFile: string,
 ): readonly ArchitectureDiagnostic[] {
   return entries.flatMap((entry) => {
-    if (options.allowedPublicSubpaths.some((s) => s.subpath === entry.publicPath)) return [];
+    if (options.allowedPublicSubpaths.some((s) => s.subpath === entry.publicPath)) {return [];}
 
     const exposesInternalPath =
       pathHasForbiddenSegment(entry.publicPath, options.forbiddenSubpathSegments) ||
       pathHasForbiddenSegment(entry.targetPath, options.forbiddenSubpathSegments);
-    if (!exposesInternalPath) return [];
+    if (!exposesInternalPath) {return [];}
 
     return [
       {
@@ -74,7 +73,7 @@ function subpathBudgetDiagnostics(
   const uniqueSubpaths = new Set(
     entries.map((entry) => entry.publicPath).filter((key) => key !== "."),
   );
-  if (uniqueSubpaths.size <= options.maxSubpathExports) return [];
+  if (uniqueSubpaths.size <= options.maxSubpathExports) {return [];}
 
   return [
     {
@@ -95,7 +94,7 @@ function wildcardExportDiagnostics(
   reportFile: string,
 ): readonly ArchitectureDiagnostic[] {
   const wildcardEntries = entries.filter((entry) => entry.publicPath.includes("*"));
-  if (wildcardEntries.length <= options.maxWildcardExports) return [];
+  if (wildcardEntries.length <= options.maxWildcardExports) {return [];}
 
   return wildcardEntries.map((entry) => ({
     ruleId: "no-internal-subpath-export",
@@ -113,12 +112,12 @@ function testHelperExportDiagnostics(
   reportFile: string,
 ): readonly ArchitectureDiagnostic[] {
   return entries.flatMap((entry) => {
-    if (options.allowedTestPublicSubpaths.some((s) => s.subpath === entry.publicPath)) return [];
+    if (options.allowedTestPublicSubpaths.some((s) => s.subpath === entry.publicPath)) {return [];}
 
     const exposesTestShape =
       pathHasForbiddenSegment(entry.publicPath, testOnlySegments) ||
       pathHasForbiddenSegment(entry.targetPath, testOnlySegments);
-    if (!exposesTestShape) return [];
+    if (!exposesTestShape) {return [];}
 
     return [
       {
@@ -140,12 +139,12 @@ function implementationFilePublicEntryDiagnostics(
   reportFile: string,
 ): readonly ArchitectureDiagnostic[] {
   return entries.flatMap((entry) => {
-    if (options.allowedPublicSubpaths.some((s) => s.subpath === entry.publicPath)) return [];
+    if (options.allowedPublicSubpaths.some((s) => s.subpath === entry.publicPath)) {return [];}
 
     const exposesImplementation =
       pathHasForbiddenSegment(entry.publicPath, options.implementationPathSegments) ||
       pathHasForbiddenSegment(entry.targetPath, options.implementationPathSegments);
-    if (!exposesImplementation) return [];
+    if (!exposesImplementation) {return [];}
 
     return [
       {

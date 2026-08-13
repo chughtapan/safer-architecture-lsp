@@ -1,3 +1,9 @@
+import type {
+  ExportConsumer,
+  ProjectArchitectureGraph,
+  SourceModule,
+} from "../imports/index.js";
+import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 import {
   explicitFacadeModule,
   generatedModule,
@@ -5,12 +11,6 @@ import {
   resolveProductionModule,
   unionSets,
 } from "../project/index.js";
-import type {
-  ExportConsumer,
-  ProjectArchitectureGraph,
-  SourceModule,
-} from "../imports/index.js";
-import type { ArchitectureDiagnostic, ResolvedArchitectureOptions } from "../project/api/index.js";
 
 interface ExportConsumerSets {
   readonly consumedExports: readonly string[];
@@ -44,9 +44,9 @@ function sharedKernelCohesionDiagnostic(
   options: ResolvedArchitectureOptions,
   module: SourceModule,
 ): readonly ArchitectureDiagnostic[] {
-  if (!sharedKernelCandidate(module, options)) return [];
+  if (!sharedKernelCandidate(module, options)) {return [];}
   const consumerSets = productionConsumerSets(graph, module);
-  if (!enoughSharedKernelEvidence(consumerSets, options)) return [];
+  if (!enoughSharedKernelEvidence(consumerSets, options)) {return [];}
   const overlap = summarizeExportOverlap(consumerSets);
   if (overlap === null || overlap.medianScore >= options.maxSharedKernelMedianOverlap) {
     return [];
@@ -91,7 +91,7 @@ function addProductionExportConsumer(
   consumer: ExportConsumer,
 ): void {
   const consumerModule = graph.modulesByFileName.get(consumer.consumerFile);
-  if (!resolveProductionModule(consumerModule)) return;
+  if (!resolveProductionModule(consumerModule)) {return;}
   const consumers = consumersByExport.get(consumer.exportName) ?? new Set<string>();
   consumers.add(consumer.consumerFile);
   consumersByExport.set(consumer.exportName, consumers);
@@ -101,7 +101,7 @@ function summarizeExportOverlap(
   consumerSets: ExportConsumerSets,
 ): OverlapStats | null {
   const overlaps = exportPairOverlaps(consumerSets);
-  if (overlaps.length === 0) return null;
+  if (overlaps.length === 0) {return null;}
   const sorted = [...overlaps].sort((first, second) => first.score - second.score);
   return {
     medianScore: sorted[Math.floor(sorted.length / 2)]?.score ?? 0,
