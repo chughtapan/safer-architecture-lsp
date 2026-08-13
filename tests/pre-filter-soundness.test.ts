@@ -10,14 +10,14 @@ import { afterEach, expect, it } from "vitest";
 import {
   analyzeResolvedArchitecture,
   resolveArchitectureOptions,
-} from "../dist/index.js";
-import { buildProjectGraph } from "../dist/analyzer/imports/project-graph/index.js";
-import { emptyPackageJson } from "../dist/analyzer/package-api/index.js";
+} from "../src/index.js";
+import { buildProjectGraph } from "../src/analyzer/imports/project-graph/index.js";
+import { emptyPackageJson } from "../src/analyzer/package-api/index.js";
 import {
   createProgram,
   projectSourceFiles,
-} from "../dist/analyzer/project/source-files.js";
-import { buildExternalTypeReach } from "../dist/analyzer/type-surface/external-reach.js";
+} from "../src/analyzer/project/source-files.js";
+import { buildExternalTypeReach } from "../src/analyzer/type-surface/external-reach.js";
 import { makeFixture, type Fixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;

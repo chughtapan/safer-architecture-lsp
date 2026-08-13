@@ -21,7 +21,7 @@ extension can front it with an LSP proxy alongside
 | Capability | Behavior |
 |---|---|
 | `textDocumentSync.openClose` | true |
-| `textDocumentSync.change` | `Incremental` (V1: stored, not re-analyzed) |
+| `textDocumentSync.change` | `Full` (stored, not re-analyzed until save) |
 | `textDocumentSync.save` | `includeText: false` (server reads from disk) |
 | `workspace.workspaceFolders.supported` | true |
 | `workspace.workspaceFolders.changeNotifications` | true |
@@ -30,12 +30,14 @@ extension can front it with an LSP proxy alongside
 
 | Event | What the server does |
 |---|---|
-| `initialize` | Registers each `workspaceFolders[i]` as a `WorkspaceEngine`. Each engine spins up a `chokidar` watcher scoped to `package.json`, `tsconfig*.json`, and `.ts` / `.tsx` / `.mts` / `.cts` files under the folder. |
-| `textDocument/didOpen` | Stores the document. Runs the architecture analyzer for the workspace. Publishes diagnostics for the opened URI. |
-| `textDocument/didChange` | Updates the in-memory document store. **Does not re-analyze** — V1 is save-time only. |
-| `textDocument/didSave` | Force-invalidates the workspace cache (`clearWorkspaceCache`). Re-runs the analyzer. Publishes diagnostics for every open document in the workspace. |
-| `textDocument/didClose` | Drops the document. Publishes empty diagnostics (clears editor squigglies). |
-| Watcher fires (out-of-band edit) | Invalidates the cache. Publishes diagnostics for every open document in the affected workspace. |
+| `initialize` | Discovers each client workspace folder. If `safer-architecture.workspace.json` exists, registers one scoped engine per explicitly listed package; otherwise registers the folder as one project. Publishes an initial whole-project report. |
+| `textDocument/didOpen` | Stores the document and republishes the containing project's complete report. |
+| `textDocument/didChange` | Replaces the stored full document text. **Does not re-analyze** — analysis remains save-time. |
+| `textDocument/didSave` | Force-invalidates the containing project's cache, re-runs analysis, and republishes its complete report. |
+| `textDocument/didClose` | Drops the in-memory buffer. Project diagnostics remain published because findings do not depend on whether a file is open. |
+| Source watcher fires (out-of-band edit) | Invalidates and republishes the affected project's complete report. |
+| Workspace/config/package metadata changes | Debounces and serializes a workspace reload, then republishes project and package-cycle diagnostics together. |
+| Workspace folder added/removed | Attaches or releases that folder's projects, watchers, caches, and published diagnostics. |
 
 ## Diagnostic shape
 
@@ -49,7 +51,7 @@ pinned to the start of each participating file. Editors group findings by the
   "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 1 } },
   "severity": 1,                              // 1 = Error, 2 = Warning
   "code": "no-folder-cycle",
-  "source": "agent-code-guard",
+  "source": "safer-architecture",
   "message": "Folder src/services is in a cycle with src/models, src/db"
 }
 ```
@@ -58,17 +60,13 @@ Severity maps from the analyzer's `error` / `warn` to LSP's `Error` / `Warning`.
 
 ## Performance
 
-| Operation | Typical wall time |
-|---|---|
-| Cold open of a workspace | 3–5 s (analyzer first build, ~1500-file project) |
-| Subsequent `didOpen` after cold | < 100 ms (disk cache hit) |
-| `didSave` round-trip (lint + publish) | 200–500 ms (cache fresh, only requested files filtered) |
-| Watcher → republish | 100–300 ms after the chokidar event |
-
-The disk cache at `<workspace>/node_modules/.cache/agent-code-guard/report.json`
-is shared with `eslint-plugin-agent-code-guard`. If you already ran ESLint
-once, the LSP boot is warm. The watermark covers source files, `package.json`,
-`tsconfig.json`, and analyzer version — edits to any of them invalidate.
+Each project keeps its last `ts.Program` warm for incremental rebuilds and
+shares the deterministic disk report with the `check` CLI at
+`<project>/node_modules/.cache/safer-architecture-lsp/report.json`. Its
+watermark covers source files, `package.json`, TypeScript configuration, and
+the analyzer/cache version; a separate hash covers every resolved option.
+Workspace packages retain independent programs and caches, so a change in one
+package does not require combining every package into one TypeScript program.
 
 ## What V1 does not do
 
@@ -76,28 +74,27 @@ once, the LSP boot is warm. The watermark covers source files, `package.json`,
   re-publish. The analyzer reads from disk; a `LanguageService`-host overlay
   (so unsaved buffer contents flow into the analyzer) is a follow-up. The
   `programFingerprint` plumbing in `WorkspaceCache` is ready for it.
-- **Multi-root workspaces with overlapping package roots.** Each workspace
-  folder gets its own engine keyed on its URI; nested folders that share a
-  `package.json` ancestor outside the registered roots aren't handled
-  specially. Real-world cases are rare; a `findNearestPackageRoot` walk on
-  every `didOpen` is the fix when this comes up.
-- **Workspace-folder removal.** `workspace/didChangeWorkspaceFolders` for
-  removed folders doesn't release that folder's engine — engines live for the
-  LSP process lifetime in V1.
+- **Implicit monorepo discovery or globbed package lists.** Package roots must
+  be listed literally in `safer-architecture.workspace.json`; every package is
+  analyzed using its own TypeScript project.
+- **Cross-package source and project-reference edges.** Workspace topology is
+  derived from declared runtime and peer dependencies, while source imports
+  remain scoped to each package's TypeScript program.
 
 ## Lifecycle
 
 The server runs inside `Effect.scoped(makeLspServer(connection))`. The
-protocol `shutdown`/`exit` sequence (or stdio loss) completes the scoped
-Effect and the ambient `Scope`'s finalizers fire: every workspace
-engine's `chokidar` watcher closes, every `WorkspaceCache` clears. Each
-engine additionally lives in its own child scope, so a config reload or
-workspace-folder removal tears down exactly one engine.
+protocol `shutdown`/`exit` sequence completes the scoped Effect and the ambient
+`Scope`'s finalizers fire: every metadata/source watcher closes and every
+workspace cache clears. Each project engine lives in its own child scope, so a
+config reload or workspace-folder removal tears down exactly that engine.
 
 ## Configuration
 
-Each workspace reads `safer-architecture.config.json` at its root
-(schema-validated through `resolveArchitectureOptions`). Invalid config
-surfaces as an error diagnostic on the config file and defaults apply;
-edits to the file hot-reload the workspace's engine. The `check` CLI
-reads the same file, so editor and CI verdicts agree by construction.
+Each project reads `safer-architecture.config.json` at its root
+(schema-validated through `resolveArchitectureOptions`). Invalid project config
+surfaces as an error diagnostic on the config file while defaults keep editor
+analysis available; `check` instead exits `2` so CI never silently accepts
+defaults. An invalid `safer-architecture.workspace.json` blocks every listed
+project and surfaces `invalid-workspace-config`. Edits to either file, or to a
+listed package's `package.json`, hot-reload the workspace.

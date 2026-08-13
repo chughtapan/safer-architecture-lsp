@@ -12,8 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import { FrameDecoder, encodePacket, type Message } from "../dist/proxy/framing.js";
-import { parseBackendSpecs } from "../dist/proxy/config.js";
+import { FrameDecoder, encodePacket, type Message } from "../src/proxy/framing.js";
+import { parseBackendSpecs } from "../src/proxy/config.js";
 
 const PACKAGE_VERSION: string = (
   createRequire(import.meta.url)("../package.json") as { version: string }

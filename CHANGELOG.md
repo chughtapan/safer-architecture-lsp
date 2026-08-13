@@ -1,6 +1,41 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.3.0 (2026-08-12)
+
+- Cache external-package type walks across public entrypoints, fixing the
+  Effect-heavy cold path without changing per-entrypoint findings.
+- Measure coverage with c8 so the server, proxy, and CLI suites that exercise
+  the built `dist/` bins through spawned processes are counted; an in-process
+  v8 provider reported those files as 0%. Server coverage is now visible
+  (`lsp-server.ts` 82.5%, `server/index.ts` 93.5%, `workspace-report.ts`
+  98.1%, `package-cycles.ts` 100%).
+- Add a global production-source coverage ratchet (74% lines/statements, 72%
+  branches) in `.c8rc.json` plus per-directory floors in
+  `scripts/coverage-gate.mjs`, both enforced by CI; subsequent passes will
+  continue raising them toward 100%. The thresholds measure the whole shipped
+  surface, so they are not comparable to a provider that sees only in-process
+  code. Function coverage is reported but not gated: c8 undercounts function
+  ranges through the dist sourcemaps.
+- Manually verify the Moltzap protocol package under a 4 GB heap stays below
+  10 seconds and 1 GB RSS.
+- Add deterministic file, domain, and workspace-package SCC diagnostics with
+  canonical cycle paths.
+- Resolve TypeScript `paths` and package `imports` aliases through one cached
+  module resolver per project graph; persist a deterministic resolution
+  snapshot in cached, CLI, and merged workspace reports.
+- Add explicit `safer-architecture.workspace.json` support to both CLI and LSP.
+  Invalid manifests block coverage; each package keeps an independent config,
+  program, watcher, and cache.
+- Add opt-in strict CUPID domain enforcement: inferred and explicit ownership,
+  reason-carrying composition roots, boundary entrypoints, domain-cycle,
+  boundary-bypass, and cross-domain side-effect rules.
+
+## 0.2.0 (2026-07-22)
+
+- Publish the first stable CLI/LSP contract with persistent report caching,
+  sound public-type prefiltering, and deterministic exit semantics.
+
+## 0.1.0 (2026-07-22)
 
 First publish. Extracted from the brief repo's architecture sidecar and
 reworked into a standalone tool.

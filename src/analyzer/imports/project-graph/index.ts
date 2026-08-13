@@ -8,6 +8,7 @@
 import path from "node:path";
 import ts from "typescript";
 import { collectModuleEdges } from "../edges.js";
+import { CachedModuleResolver } from "../specifier-resolution.js";
 import {
   collectExportConsumers,
   collectExportedSymbolNames,
@@ -53,6 +54,7 @@ export function buildProjectGraph(
   packageJson: PackageJson,
   options: ResolvedArchitectureOptions,
   reportFile: string,
+  compilerOptions: ts.CompilerOptions = {},
 ): ProjectArchitectureGraph {
   const sourceFilesByPath = new Map(
     sourceFiles.map((sourceFile) => [path.resolve(sourceFile.fileName), sourceFile] as const),
@@ -60,16 +62,21 @@ export function buildProjectGraph(
   const publicFileNames = new Set(
     publicApiFileNames(sourceFilesByPath, packageJson, options),
   );
+  const resolver = new CachedModuleResolver(
+    options.projectRoot,
+    sourceFilesByPath,
+    compilerOptions,
+  );
 
   const modules = sourceFiles.map((sourceFile) =>
-    sourceModuleFromSourceFile(sourceFile, sourceFilesByPath, publicFileNames, options),
+    sourceModuleFromSourceFile(sourceFile, resolver, publicFileNames, options),
   );
   const modulesByFileName = new Map(
     modules.map((module) => [module.fileName, module] as const),
   );
   const localEdges = modules.flatMap((module) => [...module.localEdges]);
   const externalEdges = modules.flatMap((module) => [...module.externalEdges]);
-  const exportConsumers = collectExportConsumers(sourceFiles, sourceFilesByPath);
+  const exportConsumers = collectExportConsumers(sourceFiles, resolver);
   const publicModules = modules.filter((module) => module.isPublic);
   const folders = [...new Set(modules.map((module) => module.folder))].sort();
 
@@ -85,6 +92,7 @@ export function buildProjectGraph(
     publicModules,
     localEdges,
     externalEdges,
+    moduleResolutions: resolver.snapshot(),
     exportConsumers,
     exportConsumersByFileName: consumersByTargetFile(exportConsumers),
     folderEdges: collectFolderEdges(localEdges, modulesByFileName),
@@ -159,13 +167,13 @@ function topFolder(folder: string): string {
 
 function sourceModuleFromSourceFile(
   sourceFile: ts.SourceFile,
-  sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>,
+  resolver: CachedModuleResolver,
   publicFileNames: ReadonlySet<string>,
   options: ResolvedArchitectureOptions,
 ): SourceModule {
   const fileName = path.resolve(sourceFile.fileName);
   const folder = folderKeyForFile(fileName, options.projectRoot);
-  const edges = collectModuleEdges(sourceFile, sourceFilesByPath);
+  const edges = collectModuleEdges(sourceFile, resolver);
 
   return {
     fileName,

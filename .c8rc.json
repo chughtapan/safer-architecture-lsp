@@ -1,0 +1,12 @@
+{
+  "reporter": ["text", "json-summary", "lcov"],
+  "reports-dir": "coverage",
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.d.ts"],
+  "excludeAfterRemap": true,
+  "check-coverage": true,
+  "lines": 74,
+  "statements": 74,
+  "branches": 72,
+  "functions": 0
+}

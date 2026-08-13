@@ -8,12 +8,14 @@
 import path from "node:path";
 import type ts from "typescript";
 import { checkFolderShape } from "./folder-shape/index.js";
+import { domainArchitectureDiagnostics } from "./domains/index.js";
 import { checkInventoryBarrels } from "./exports/inventory-barrels.js";
 import {
   buildProjectGraph,
   checkFolderGraph,
   type ProjectArchitectureGraph,
 } from "./imports/index.js";
+import { moduleCycleDiagnostics } from "./imports/module-cycles.js";
 import { checkModuleShape } from "./module-shape/index.js";
 import {
   checkPackageExports,
@@ -81,7 +83,13 @@ export function analyzeResolvedArchitecture(
   const sourceFiles = program ? projectSourceFiles(program, options.projectRoot) : [];
   const unavailableDiagnostics = program === null ? analysisUnavailable(options) : [];
   const packageReportFile = findPackageReportFile(sourceFiles, options.projectRoot);
-  const graph = buildProjectGraph(sourceFiles, packageJson, options, packageReportFile);
+  const graph = buildProjectGraph(
+    sourceFiles,
+    packageJson,
+    options,
+    packageReportFile,
+    program?.getCompilerOptions(),
+  );
   const directiveAnalysis = analyzeDirectiveComments(sourceFiles);
 
   const allDiagnostics = uniqueDiagnostics([
@@ -89,6 +97,8 @@ export function analyzeResolvedArchitecture(
     ...checkInventoryBarrels(sourceFiles, options),
     ...resolvePublicVendorTypeLeaks(program, graph, packageJson, options),
     ...checkPublicSurface(graph, sourceFiles, packageJson, options),
+    ...moduleCycleDiagnostics(graph),
+    ...domainArchitectureDiagnostics(graph, options),
     ...checkFolderGraph(graph, options),
     ...checkFolderShape(graph, options),
     ...checkModuleShape(graph, options),
@@ -103,6 +113,11 @@ export function analyzeResolvedArchitecture(
     diagnostics,
     diagnosticsByFile: indexByFile(diagnostics),
     waivers: directiveAnalysis.waivers,
+    snapshot: {
+      projectRoot: options.projectRoot,
+      sourceFiles: sourceFiles.map((sourceFile) => path.resolve(sourceFile.fileName)).sort(),
+      moduleResolutions: graph.moduleResolutions,
+    },
   };
 }
 

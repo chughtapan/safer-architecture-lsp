@@ -16,8 +16,7 @@ the diagnostic while authoring, and the escape hatch is one line it must
 justify: that inline feedback loop, with a queryable waiver ledger, is
 the wedge.
 
-> **Status: 0.1.0.** Rule heuristics are young and tuned on small
-> single-package repos; expect to configure. See the 0.x stability
+> **Status: 0.x.** Rule heuristics are young; expect to configure. See the 0.x stability
 > policy in [CHANGELOG.md](./CHANGELOG.md).
 
 ## CI in two minutes
@@ -33,20 +32,31 @@ tsconfig). It always prints a summary line, so an empty result is
 distinguishable from a run that never happened:
 
 ```
-safer-architecture check: 0 finding(s) across 0 file(s), 4 waiver(s), options from file — /repo
+safer-architecture check: 0 finding(s) across 0 file(s), 4 waiver(s), 1 project(s), options from file — /repo
 ```
 
-`--json` emits the full report (diagnostics + waivers) for machine
-consumption; `--waivers` prints the suppression ledger with reasons.
+`--json` emits the merged report (projects, diagnostics, waivers, and
+deterministic analysis snapshots) for machine consumption; `--waivers`
+prints the suppression ledger with reasons.
 
 `check` writes a persistent report to
 `node_modules/.cache/safer-architecture-lsp/`, keyed by a content
 watermark over the project's sources, `package.json`, and `tsconfig`. A
 repeat run on an unchanged project reuses it instead of rebuilding the
-`ts.Program`, so **cache that directory in CI** to amortize cold cost. In
-a monorepo, run one `check` per package through a build tool's cache and
-parallelism (nx/turbo) rather than a sequential shell loop — each
-invocation is a whole-project analysis.
+`ts.Program`, so **cache that directory in CI** to amortize cold cost.
+
+For a monorepo, add an explicit `safer-architecture.workspace.json` at
+the root. Paths are literal and relative—there is no implicit discovery
+or glob expansion:
+
+```json
+{ "packages": ["packages/api", "packages/web"] }
+```
+
+Every listed directory must exist and have a unique, non-empty `package.json`
+name. The CLI and LSP analyze each package with its own config/cache, merge the
+reports, and reject runtime/peer dependency cycles. An invalid manifest blocks
+the workspace loudly.
 
 ## Editor / agent setup
 
@@ -72,16 +82,19 @@ reference. Hosts that cannot run two servers for one file extension can
 front this server with the bundled `safer-lsp-proxy` multiplexer
 alongside `typescript-language-server`: the first backend in its config
 is primary, and a sidecar crash never takes the primary down.
+See the [LSP server guide](./docs/lsp.md) for workspace discovery,
+diagnostic lifecycle, and teardown behavior.
 
 Verify it's alive: stderr logs one line per workspace registration and
 per publish (`published N finding(s) across M file(s) … in Xms`).
 
 ## Configuration
 
-Put `safer-architecture.config.json` at the workspace root. It is
-schema-validated; an invalid file fails `check` runs loudly and surfaces
-as an error diagnostic in the editor (with defaults applied). Edits
-hot-reload the workspace. The knobs you'll actually touch first:
+Put `safer-architecture.config.json` at the project root (each listed package
+has its own file in an explicit workspace). It is schema-validated; an invalid
+file makes `check` exit without analysis and surfaces as an error diagnostic in
+the editor, where defaults keep diagnostics available while you repair it.
+Edits hot-reload the affected project. The knobs you'll actually touch first:
 
 ```jsonc
 {
@@ -110,6 +123,36 @@ that control it. This repository's own
 [safer-architecture.config.json](./safer-architecture.config.json) is a
 working example: CI runs `check .` on this codebase and fails on any
 unwaived finding.
+
+### CUPID domain enforcement
+
+Domain enforcement is opt-in and strict once `domains` is non-empty:
+
+```json
+{
+  "domains": [{
+    "name": "orders",
+    "roots": ["src/orders"],
+    "entrypoints": ["src/orders/index.ts"],
+    "reason": "owns the order lifecycle"
+  }],
+  "domainOwnership": [{
+    "path": "src/legacy-orders",
+    "domain": "orders",
+    "reason": "migration ownership is explicit"
+  }],
+  "compositionRoots": [{
+    "path": "src/bootstrap.ts",
+    "reason": "application wiring edge"
+  }]
+}
+```
+
+Production modules must be owned by an inferred domain root, an explicit
+ownership override, or a reason-carrying composition root. Cross-domain imports
+must target destination entrypoints; domain dependencies must be acyclic; and
+side-effect-only cross-domain imports are restricted to composition roots. See
+[CUPID enforcement](./docs/cupid.md).
 
 ## Rules
 
@@ -149,12 +192,16 @@ for (const d of report.diagnostics) console.log(d.ruleId, d.file, d.message);
 for (const w of report.waivers) console.log("waived", w.ruleId, w.reason);
 ```
 
+The exported report types include deterministic analysis snapshots, and the
+exported option types include domain definitions, ownership overrides, and
+composition roots for typed configuration builders.
+
 ## Scope and limits (read before adopting)
 
-- The import graph resolves **relative imports** within one package.
-  `tsconfig` path aliases, workspace packages, and project references
-  are not yet modeled (tracked in TODOS) — in a monorepo, run one
-  `check` per package root.
+- Module edges use TypeScript's cached resolver, including `paths` and package
+  `imports` aliases. Workspace package topology comes from declared runtime and
+  peer dependencies; cross-package source/project-reference imports remain
+  scoped to each package's TypeScript project.
 - Analysis is save-time in the editor; live keystroke-level diagnostics
   are a follow-up.
 - A tsconfig found above the workspace root is scoped to the
@@ -178,6 +225,7 @@ for (const w of report.waivers) console.log("waived", w.ruleId, w.reason);
 npm install
 npm run build   # tsc → dist/
 npm test        # vitest: analyzer fixtures, CLI contract, proxy, full LSP session
+npm run test:coverage # c8 ratchet + per-directory floors; counts spawned bins
 npm run lint    # knip
 node dist/server/index.js check .   # the dogfood gate CI enforces
 ```

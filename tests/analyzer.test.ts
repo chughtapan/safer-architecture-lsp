@@ -8,7 +8,7 @@ import { afterEach, expect, it } from "vitest";
 import {
   analyzeResolvedArchitecture,
   resolveArchitectureOptions,
-} from "../dist/index.js";
+} from "../src/index.js";
 import { makeFixture, type Fixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;
@@ -40,6 +40,29 @@ it("reports nothing for an acyclic single-owner project", () => {
     "core/index.ts": "export const answer: number = 42;\n",
   });
   expect(ruleIdsFor(fixture.root)).toEqual([]);
+});
+
+it("reports a deterministic module SCC and canonical cycle", () => {
+  fixture = makeFixture({
+    "c.ts": 'import { a } from "./a.js";\nexport const c: number = a + 1;\n',
+    "a.ts":
+      'import { c } from "./c.js";\n' +
+      'import { b } from "./b.js";\n' +
+      "export const a: number = b + c;\n",
+    "b.ts": 'import { a } from "./a.js";\nexport const b: number = a + 1;\n',
+  });
+
+  const options = resolveArchitectureOptions({ projectRoot: fixture.root });
+  const diagnostics = analyzeResolvedArchitecture(options).diagnostics.filter(
+    (diagnostic) => diagnostic.ruleId === "no-module-cycle",
+  );
+
+  expect(diagnostics).toHaveLength(1);
+  expect(diagnostics[0]?.file.endsWith("/a.ts")).toBe(true);
+  expect(diagnostics[0]?.message).toContain(
+    "Module dependency component (3): a.ts, b.ts, c.ts. " +
+      "Canonical cycle: a.ts -> b.ts -> a.ts.",
+  );
 });
 
 it("suppresses a diagnostic via a reason-carrying safer-arch-ignore directive and records the waiver", () => {

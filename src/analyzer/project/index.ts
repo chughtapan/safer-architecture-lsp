@@ -21,6 +21,7 @@ export {
   type FolderEdge,
   type LocalModuleEdge,
   type ModuleEdgeKind,
+  type ModuleResolutionSnapshotEntry,
   type ProjectArchitectureGraph,
   type SourceModule,
 } from "./source-model/index.js";

@@ -11,7 +11,7 @@ import { afterEach, expect, it } from "vitest";
 import {
   analyzeResolvedArchitecture,
   resolveArchitectureOptions,
-} from "../dist/index.js";
+} from "../src/index.js";
 import { makeFixture, type Fixture } from "./support/fixtures.js";
 
 let fixture: Fixture | null = null;
@@ -78,6 +78,38 @@ it("still flags a public vendor type leak when the pre-filter is active", () => 
   symlinkSync(REPO_NODE_MODULES, path.join(fixture.root, "node_modules"), "dir");
 
   expect(ruleIdsFor(fixture.root)).toContain("no-public-vendor-type-leak");
+});
+
+it("reuses an exported type walk across public entrypoints without dropping findings", () => {
+  fixture = makeFixture({
+    "tsconfig.json": LOCAL_TSCONFIG,
+    "package.json": JSON.stringify({
+      name: "p",
+      exports: {
+        ".": "./index.ts",
+        "./secondary": "./secondary.ts",
+      },
+    }),
+    "index.ts": 'export { run } from "./shared.js";\n',
+    "secondary.ts": 'export { run } from "./shared.js";\n',
+    "shared.ts":
+      'import { Effect } from "effect";\n' +
+      "export function run(): Effect.Effect<number> {\n" +
+      "  return Effect.succeed(1);\n" +
+      "}\n",
+  });
+  symlinkSync(REPO_NODE_MODULES, path.join(fixture.root, "node_modules"), "dir");
+
+  const diagnostics = analyzeResolvedArchitecture(
+    resolveArchitectureOptions({ projectRoot: fixture.root }),
+  ).diagnostics.filter((diagnostic) =>
+    diagnostic.ruleId === "no-public-vendor-type-leak"
+  );
+
+  expect(diagnostics.map((diagnostic) => path.basename(diagnostic.file)).sort()).toEqual([
+    "index.ts",
+    "secondary.ts",
+  ]);
 });
 
 it("reports no vendor leak for a pure-local public surface", () => {
