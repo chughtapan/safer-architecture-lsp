@@ -50,6 +50,17 @@ interface RoutedRequest {
   readonly originalId: RpcId | null;
 }
 
+function workspaceFolderCapability(response: Message): Record<string, unknown> | null {
+  const result = response.result;
+  if (!isObject(result)) {return null;}
+  const capabilities = result.capabilities;
+  if (!isObject(capabilities)) {return null;}
+  const workspace = capabilities.workspace;
+  if (!isObject(workspace)) {return null;}
+  const folders = workspace.workspaceFolders;
+  return isObject(folders) ? { ...folders } : null;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -84,17 +95,6 @@ function idKey(identifier: RpcId | null): string {
 
 function errorResponse(identifier: RpcId | null, code: number, message: string): Message {
   return { jsonrpc: "2.0", id: identifier, error: { code, message } };
-}
-
-function workspaceFolderCapability(response: Message): Record<string, unknown> | null {
-  const result = response.result;
-  if (!isObject(result)) {return null;}
-  const capabilities = result.capabilities;
-  if (!isObject(capabilities)) {return null;}
-  const workspace = capabilities.workspace;
-  if (!isObject(workspace)) {return null;}
-  const folders = workspace.workspaceFolders;
-  return isObject(folders) ? { ...folders } : null;
 }
 
 /**
@@ -165,21 +165,6 @@ export class Multiplexer {
     );
   }
 
-  private activeBackends(): Backend[] {
-    return this.backends.filter((backend) => !backend.dropped);
-  }
-
-  private sendClient(message: Message): void {
-    this.clientOut.write(encodePacket(message));
-  }
-
-  private broadcast(message: Message): Effect.Effect<undefined, BackendWriteError> {
-    return Effect.gen(this, function* (this: Multiplexer) {
-      for (const backend of this.activeBackends()) {yield* backend.send(message);}
-      return undefined;
-    });
-  }
-
   private handleClient(
     message: Message,
   ): Effect.Effect<undefined, ProtocolError | BackendWriteError> {
@@ -222,6 +207,13 @@ export class Multiplexer {
         yield* this.backends[0].send(message);
         log(`client -> primary: ${method}`);
       }
+      return undefined;
+    });
+  }
+
+  private broadcast(message: Message): Effect.Effect<undefined, BackendWriteError> {
+    return Effect.gen(this, function* (this: Multiplexer) {
+      for (const backend of this.activeBackends()) {yield* backend.send(message);}
       return undefined;
     });
   }
@@ -301,57 +293,6 @@ export class Multiplexer {
     }
   }
 
-  private maybeCompleteFanout(key: string, fanout: Fanout): void {
-    const active = this.activeBackends();
-    if (!active.every((backend) => fanout.responses.has(backend.index))) {return;}
-    this.fanouts.delete(key);
-    this.sendClient(this.completeFanout(fanout));
-    log(`all -> client: ${fanout.method} response`);
-  }
-
-  private completeFanout(fanout: Fanout): Message {
-    const ordered = this.activeBackends().map(
-      (backend) =>
-        // Safe: reached only once every active backend has recorded a response.
-        fanout.responses.get(backend.index) as Message,
-    );
-    const failure = ordered.find((response) => "error" in response);
-    if (failure !== undefined) {return { ...failure, id: fanout.identifier };}
-
-    const primary: Message = { ...ordered[0], id: fanout.identifier };
-    if (fanout.method !== "initialize") {return primary;}
-
-    const result = primary.result;
-    if (!isObject(result)) {
-      return errorResponse(fanout.identifier, -32603, "primary initialize result is invalid");
-    }
-    const capabilitiesValue = result.capabilities ?? {};
-    if (!isObject(capabilitiesValue)) {
-      return errorResponse(fanout.identifier, -32603, "primary capabilities are invalid");
-    }
-    const capabilities: Record<string, unknown> = { ...capabilitiesValue };
-
-    // The primary owns feature routing. Workspace-folder support is the
-    // one sidecar capability the client must also see, so it emits folder
-    // lifecycle notifications the sidecars depend on.
-    let folders = workspaceFolderCapability(primary);
-    for (const response of ordered.slice(1)) {
-      const sidecarFolders = workspaceFolderCapability(response);
-      if (sidecarFolders !== null) {
-        folders = folders === null ? sidecarFolders : { ...folders, ...sidecarFolders };
-      }
-    }
-    if (folders !== null) {
-      const workspaceValue = capabilities.workspace;
-      const workspace = isObject(workspaceValue) ? { ...workspaceValue } : {};
-      workspace.workspaceFolders = folders;
-      capabilities.workspace = workspace;
-    }
-
-    primary.result = { ...result, capabilities, serverInfo: { ...this.serverInfo } };
-    return primary;
-  }
-
   private publishMergedDiagnostics(backend: Backend, message: Message): void {
     const params = message.params;
     if (!isObject(params)) {throw new ProtocolError(`${backend.label}: diagnostics params must be an object`);}
@@ -363,16 +304,6 @@ export class Multiplexer {
     backend.diagnostics.set(uri, diagnostics);
     this.sendClient(this.mergedDiagnostics(uri, message));
     log(`${backend.label} -> client: merged diagnostics`);
-  }
-
-  private mergedDiagnostics(uri: string, base: Message): Message {
-    const combined: unknown[] = [];
-    for (const backend of this.activeBackends()) {
-      const diagnostics = backend.diagnostics.get(uri);
-      if (diagnostics) {combined.push(...diagnostics);}
-    }
-    const baseParams = isObject(base.params) ? base.params : {};
-    return { ...base, params: { ...baseParams, uri, diagnostics: combined } };
   }
 
   private forwardBackendRequest(backend: Backend, message: Message): void {
@@ -441,6 +372,75 @@ export class Multiplexer {
       );
     }
     for (const [key, fanout] of [...this.fanouts]) {this.maybeCompleteFanout(key, fanout);}
+  }
+
+  private maybeCompleteFanout(key: string, fanout: Fanout): void {
+    const active = this.activeBackends();
+    if (!active.every((backend) => fanout.responses.has(backend.index))) {return;}
+    this.fanouts.delete(key);
+    this.sendClient(this.completeFanout(fanout));
+    log(`all -> client: ${fanout.method} response`);
+  }
+
+  private completeFanout(fanout: Fanout): Message {
+    const ordered = this.activeBackends().map(
+      (backend) =>
+        // Safe: reached only once every active backend has recorded a response.
+        fanout.responses.get(backend.index) as Message,
+    );
+    const failure = ordered.find((response) => "error" in response);
+    if (failure !== undefined) {return { ...failure, id: fanout.identifier };}
+
+    const primary: Message = { ...ordered[0], id: fanout.identifier };
+    if (fanout.method !== "initialize") {return primary;}
+
+    const result = primary.result;
+    if (!isObject(result)) {
+      return errorResponse(fanout.identifier, -32603, "primary initialize result is invalid");
+    }
+    const capabilitiesValue = result.capabilities ?? {};
+    if (!isObject(capabilitiesValue)) {
+      return errorResponse(fanout.identifier, -32603, "primary capabilities are invalid");
+    }
+    const capabilities: Record<string, unknown> = { ...capabilitiesValue };
+
+    // The primary owns feature routing. Workspace-folder support is the
+    // one sidecar capability the client must also see, so it emits folder
+    // lifecycle notifications the sidecars depend on.
+    let folders = workspaceFolderCapability(primary);
+    for (const response of ordered.slice(1)) {
+      const sidecarFolders = workspaceFolderCapability(response);
+      if (sidecarFolders !== null) {
+        folders = folders === null ? sidecarFolders : { ...folders, ...sidecarFolders };
+      }
+    }
+    if (folders !== null) {
+      const workspaceValue = capabilities.workspace;
+      const workspace = isObject(workspaceValue) ? { ...workspaceValue } : {};
+      workspace.workspaceFolders = folders;
+      capabilities.workspace = workspace;
+    }
+
+    primary.result = { ...result, capabilities, serverInfo: { ...this.serverInfo } };
+    return primary;
+  }
+
+  private mergedDiagnostics(uri: string, base: Message): Message {
+    const combined: unknown[] = [];
+    for (const backend of this.activeBackends()) {
+      const diagnostics = backend.diagnostics.get(uri);
+      if (diagnostics) {combined.push(...diagnostics);}
+    }
+    const baseParams = isObject(base.params) ? base.params : {};
+    return { ...base, params: { ...baseParams, uri, diagnostics: combined } };
+  }
+
+  private activeBackends(): Backend[] {
+    return this.backends.filter((backend) => !backend.dropped);
+  }
+
+  private sendClient(message: Message): void {
+    this.clientOut.write(encodePacket(message));
   }
 
   // Queued behind the same permit as every client message, so the stream's

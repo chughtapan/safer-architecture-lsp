@@ -39,18 +39,6 @@ export function productionFolderGraph(
   };
 }
 
-function folderEdgeDensity(
-  folders: readonly string[],
-  folderEdges: readonly FolderEdge[],
-): number {
-  if (folders.length < 2) {return 0;}
-
-  const uniqueDirections = new Set(
-    folderEdges.map((edge) => `${edge.from}\0${edge.to}`),
-  );
-  return uniqueDirections.size / (folders.length * (folders.length - 1));
-}
-
 /**
  * Warn once when the production folder graph is too densely or too cyclically
  * connected to read as layered. Small projects are skipped entirely, since
@@ -85,6 +73,18 @@ export function packageMeshDiagnostics(
         `and density ${density.toFixed(2)}. This is a mesh, not a layered package shape.`,
     },
   ];
+}
+
+function folderEdgeDensity(
+  folders: readonly string[],
+  folderEdges: readonly FolderEdge[],
+): number {
+  if (folders.length < 2) {return 0;}
+
+  const uniqueDirections = new Set(
+    folderEdges.map((edge) => `${edge.from}\0${edge.to}`),
+  );
+  return uniqueDirections.size / (folders.length * (folders.length - 1));
 }
 
 function productionFolderEdges(graph: ProjectArchitectureGraph): readonly FolderEdge[] {

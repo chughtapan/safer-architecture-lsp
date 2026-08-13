@@ -60,10 +60,30 @@ DOCS
   https://github.com/chughtapan/safer-architecture-lsp
 `;
 
-function reportFatal(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`[safer-architecture-lsp] fatal: ${message}\n`);
-  process.exit(1);
+function main(): void {
+  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- argv is read once at the process boundary to pick a subcommand; @effect/cli would add a runtime dependency to parse two flags.
+  const [command, ...rest] = process.argv.slice(2);
+  switch (command) {
+    case "serve":
+      serve();
+      return;
+    case "check":
+      check(rest);
+      return;
+    case "--version":
+    case "-v":
+      process.stdout.write(`${PACKAGE_VERSION}\n`);
+      process.exit(0);
+      break;
+    case "--help":
+    case "-h":
+      process.stdout.write(HELP);
+      process.exit(0);
+      break;
+    default:
+      process.stderr.write(HELP);
+      process.exit(2);
+  }
 }
 
 function serve(): void {
@@ -85,45 +105,10 @@ function serve(): void {
   ).catch(reportFatal);
 }
 
-interface CheckFlags {
-  readonly root: string;
-  readonly json: boolean;
-  readonly waivers: boolean;
-}
-
-function parseCheckFlags(args: readonly string[]): CheckFlags | null {
-  let root = process.cwd();
-  let json = false;
-  let waivers = false;
-  let sawRoot = false;
-  for (const arg of args) {
-    if (arg === "--json") {json = true;}
-    else if (arg === "--waivers") {waivers = true;}
-    else if (arg.startsWith("--")) {return null;}
-    else if (!sawRoot) {
-      root = path.resolve(arg);
-      sawRoot = true;
-    } else {return null;}
-  }
-  return { root, json, waivers };
-}
-
-function printFindings(report: WorkspaceArchitectureReport, root: string): void {
-  for (const d of report.diagnostics) {
-    const rel = path.relative(root, d.file) || d.file;
-    process.stdout.write(`${d.severity} ${d.ruleId} ${rel}: ${d.message}\n`);
-  }
-}
-
-function printWaivers(report: WorkspaceArchitectureReport, root: string): void {
-  if (report.waivers.length === 0) {
-    process.stdout.write("no waivers granted\n");
-    return;
-  }
-  for (const w of report.waivers) {
-    const rel = path.relative(root, w.file) || w.file;
-    process.stdout.write(`waived ${w.ruleId} ${rel}: ${w.reason}\n`);
-  }
+function reportFatal(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`[safer-architecture-lsp] fatal: ${message}\n`);
+  process.exit(1);
 }
 
 function check(args: readonly string[]): void {
@@ -193,29 +178,44 @@ function check(args: readonly string[]): void {
   process.exit(report.diagnostics.length > 0 ? 1 : 0);
 }
 
-function main(): void {
-  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- argv is read once at the process boundary to pick a subcommand; @effect/cli would add a runtime dependency to parse two flags.
-  const [command, ...rest] = process.argv.slice(2);
-  switch (command) {
-    case "serve":
-      serve();
-      return;
-    case "check":
-      check(rest);
-      return;
-    case "--version":
-    case "-v":
-      process.stdout.write(`${PACKAGE_VERSION}\n`);
-      process.exit(0);
-      break;
-    case "--help":
-    case "-h":
-      process.stdout.write(HELP);
-      process.exit(0);
-      break;
-    default:
-      process.stderr.write(HELP);
-      process.exit(2);
+interface CheckFlags {
+  readonly root: string;
+  readonly json: boolean;
+  readonly waivers: boolean;
+}
+
+function parseCheckFlags(args: readonly string[]): CheckFlags | null {
+  let root = process.cwd();
+  let json = false;
+  let waivers = false;
+  let sawRoot = false;
+  for (const arg of args) {
+    if (arg === "--json") {json = true;}
+    else if (arg === "--waivers") {waivers = true;}
+    else if (arg.startsWith("--")) {return null;}
+    else if (!sawRoot) {
+      root = path.resolve(arg);
+      sawRoot = true;
+    } else {return null;}
+  }
+  return { root, json, waivers };
+}
+
+function printFindings(report: WorkspaceArchitectureReport, root: string): void {
+  for (const d of report.diagnostics) {
+    const rel = path.relative(root, d.file) || d.file;
+    process.stdout.write(`${d.severity} ${d.ruleId} ${rel}: ${d.message}\n`);
+  }
+}
+
+function printWaivers(report: WorkspaceArchitectureReport, root: string): void {
+  if (report.waivers.length === 0) {
+    process.stdout.write("no waivers granted\n");
+    return;
+  }
+  for (const w of report.waivers) {
+    const rel = path.relative(root, w.file) || w.file;
+    process.stdout.write(`waived ${w.ruleId} ${rel}: ${w.reason}\n`);
   }
 }
 

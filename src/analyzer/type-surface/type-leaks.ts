@@ -66,6 +66,57 @@ export function checkPublicVendorTypeLeaks(
   return uniqueDiagnostics(diagnostics);
 }
 
+/**
+ * Classify a module specifier for the public-type rules, resolving Node
+ * subpath imports (`#`-prefixed) through the package's own `imports`
+ * map. A `#` specifier that maps to an in-package path is internal
+ * (like a relative import) and returns null; one that maps only to a
+ * bare package resolves to that vendor package name. Non-`#` specifiers
+ * keep the plain package-name classification.
+ * @param specifier Module specifier exactly as written in the source, not
+ * the graph's already-classified package name.
+ * @param packageJson Read only for its `imports` map, which is what turns
+ * a `#` specifier into concrete targets.
+ * @returns The vendor package the specifier belongs to, or null when it
+ * resolves inside this package.
+ */
+export function publicTypePackageForSpecifier(
+  specifier: string,
+  packageJson: Pick<PackageJson, "imports">,
+): string | null {
+  if (!specifier.startsWith("#")) {return packageNameFromSpecifier(specifier);}
+
+  const targets = resolveSubpathImportTargets(specifier, packageJson.imports);
+  // Any relative target means the specifier resolves inside the package.
+  if (targets.some(isInternalImportTarget)) {return null;}
+  for (const target of targets) {
+    const vendor = packageNameFromSpecifier(target);
+    if (vendor !== null) {return vendor;}
+  }
+  // An unmapped or unresolved `#` specifier is never a vendor package.
+  return null;
+}
+
+/**
+ * Whether a package may appear in the public type surface. Node's own
+ * types are tolerated for a node-runtime package without being listed;
+ * every other package has to be declared explicitly, so a new vendor
+ * dependency cannot enter the contract by accident.
+ * @param packageName Vendor package name as classified from a specifier
+ * or from a declaring file under `node_modules`.
+ * @param options Carries the declared public-type packages and the
+ * runtime the package targets.
+ * @returns True when the package is part of the published contract.
+ */
+export function packageAllowedInPublicTypes(
+  packageName: string,
+  options: Pick<ResolvedArchitectureOptions, "packageRuntime" | "publicTypePackages">,
+): boolean {
+  if (options.publicTypePackages.some((entry) => entry.package === packageName)) {return true;}
+  if (packageName !== "node") {return false;}
+  return options.packageRuntime === "node";
+}
+
 function externalReExportDiagnostics(
   sourceFile: ts.SourceFile,
   packageJson: PackageJson,
@@ -106,37 +157,6 @@ function packageNameFromSpecifier(specifier: string): string | null {
   return firstSegment;
 }
 
-/**
- * Classify a module specifier for the public-type rules, resolving Node
- * subpath imports (`#`-prefixed) through the package's own `imports`
- * map. A `#` specifier that maps to an in-package path is internal
- * (like a relative import) and returns null; one that maps only to a
- * bare package resolves to that vendor package name. Non-`#` specifiers
- * keep the plain package-name classification.
- * @param specifier Module specifier exactly as written in the source, not
- * the graph's already-classified package name.
- * @param packageJson Read only for its `imports` map, which is what turns
- * a `#` specifier into concrete targets.
- * @returns The vendor package the specifier belongs to, or null when it
- * resolves inside this package.
- */
-export function publicTypePackageForSpecifier(
-  specifier: string,
-  packageJson: Pick<PackageJson, "imports">,
-): string | null {
-  if (!specifier.startsWith("#")) {return packageNameFromSpecifier(specifier);}
-
-  const targets = resolveSubpathImportTargets(specifier, packageJson.imports);
-  // Any relative target means the specifier resolves inside the package.
-  if (targets.some(isInternalImportTarget)) {return null;}
-  for (const target of targets) {
-    const vendor = packageNameFromSpecifier(target);
-    if (vendor !== null) {return vendor;}
-  }
-  // An unmapped or unresolved `#` specifier is never a vendor package.
-  return null;
-}
-
 function isInternalImportTarget(target: string): boolean {
   return target.startsWith(".") || target.startsWith("#");
 }
@@ -162,49 +182,6 @@ function resolveSubpathImportTargets(
     }
   }
   return [];
-}
-
-function packageNameFromFileName(fileName: string): string | null {
-  const normalized = fileName.replaceAll("\\", "/");
-  if (/\/node_modules\/typescript\/lib\/lib\..+\.d\.ts$/.test(normalized)) {return null;}
-
-  const marker = "/node_modules/";
-  const markerIndex = normalized.lastIndexOf(marker);
-  if (markerIndex === -1) {
-    return /\/(__generated__|generated)\//.test(normalized) ? "generated-vendor" : null;
-  }
-
-  const afterNodeModules = normalized.slice(markerIndex + marker.length);
-  const rawPackageName = packageNameFromNodeModulesPath(afterNodeModules);
-  return rawPackageName ? normalizeTypePackageName(rawPackageName) : null;
-}
-
-function normalizeTypePackageName(packageName: string): string {
-  if (!packageName.startsWith("@types/")) {return packageName;}
-
-  const withoutPrefix = packageName.slice("@types/".length);
-  const scopedMatch = /^([^_]+)__([^_]+)$/.exec(withoutPrefix);
-  return scopedMatch ? `@${scopedMatch[1]}/${scopedMatch[2]}` : withoutPrefix;
-}
-
-/**
- * Whether a package may appear in the public type surface. Node's own
- * types are tolerated for a node-runtime package without being listed;
- * every other package has to be declared explicitly, so a new vendor
- * dependency cannot enter the contract by accident.
- * @param packageName Vendor package name as classified from a specifier
- * or from a declaring file under `node_modules`.
- * @param options Carries the declared public-type packages and the
- * runtime the package targets.
- * @returns True when the package is part of the published contract.
- */
-export function packageAllowedInPublicTypes(
-  packageName: string,
-  options: Pick<ResolvedArchitectureOptions, "packageRuntime" | "publicTypePackages">,
-): boolean {
-  if (options.publicTypePackages.some((entry) => entry.package === packageName)) {return true;}
-  if (packageName !== "node") {return false;}
-  return options.packageRuntime === "node";
 }
 
 function exportedSignatureDiagnostics(
@@ -428,6 +405,29 @@ function resolvePackageNameFromSymbol(symbol?: ts.Symbol): string | null {
   }
 
   return null;
+}
+
+function packageNameFromFileName(fileName: string): string | null {
+  const normalized = fileName.replaceAll("\\", "/");
+  if (/\/node_modules\/typescript\/lib\/lib\..+\.d\.ts$/.test(normalized)) {return null;}
+
+  const marker = "/node_modules/";
+  const markerIndex = normalized.lastIndexOf(marker);
+  if (markerIndex === -1) {
+    return /\/(__generated__|generated)\//.test(normalized) ? "generated-vendor" : null;
+  }
+
+  const afterNodeModules = normalized.slice(markerIndex + marker.length);
+  const rawPackageName = packageNameFromNodeModulesPath(afterNodeModules);
+  return rawPackageName ? normalizeTypePackageName(rawPackageName) : null;
+}
+
+function normalizeTypePackageName(packageName: string): string {
+  if (!packageName.startsWith("@types/")) {return packageName;}
+
+  const withoutPrefix = packageName.slice("@types/".length);
+  const scopedMatch = /^([^_]+)__([^_]+)$/.exec(withoutPrefix);
+  return scopedMatch ? `@${scopedMatch[1]}/${scopedMatch[2]}` : withoutPrefix;
 }
 
 function packageNameFromNodeModulesPath(afterNodeModules: string): string | null {

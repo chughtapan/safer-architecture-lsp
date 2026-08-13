@@ -146,33 +146,6 @@ function layerIndexFor(
   return bestLayer;
 }
 
-/**
- * Canonical folder key for a source file: directory path relative to
- * `src/` (when the file lives under `src/`) or relative to the project
- * root (otherwise). The root folder is encoded as `.`.
- * @param fileName Absolute or relative path to the source file.
- * @param projectRoot Absolute path to the project root.
- * @returns Folder key with forward-slash separators; `.` for root.
- */
-function folderKeyForFile(fileName: string, projectRoot: string): string {
-  const sourceRoot = path.join(projectRoot, "src");
-  const sourceRootWithSlash = withTrailingSeparator(sourceRoot);
-  const resolved = path.resolve(fileName);
-  const base = resolved.startsWith(sourceRootWithSlash) ? sourceRoot : projectRoot;
-  const relativeDirectory = path.relative(base, path.dirname(resolved));
-  return relativeDirectory.length === 0 ? "." : normalizePath(relativeDirectory);
-}
-
-/**
- * Top-level folder segment for a folder key — the first path
- * component, used by layer-direction and shared-kernel checks.
- * @param folder Folder key from `folderKeyForFile`.
- * @returns The first segment of `folder`, or `.` for the root folder.
- */
-function topFolder(folder: string): string {
-  return folder.split("/")[0] ?? ".";
-}
-
 function sourceModuleFromSourceFile(
   sourceFile: ts.SourceFile,
   resolver: CachedModuleResolver,
@@ -199,6 +172,33 @@ function sourceModuleFromSourceFile(
     starExportCount: sourceFile.statements.filter(isStarExportDeclaration).length,
     topLevelStatementCount: countNonImportTopLevelStatements(sourceFile),
   };
+}
+
+/**
+ * Canonical folder key for a source file: directory path relative to
+ * `src/` (when the file lives under `src/`) or relative to the project
+ * root (otherwise). The root folder is encoded as `.`.
+ * @param fileName Absolute or relative path to the source file.
+ * @param projectRoot Absolute path to the project root.
+ * @returns Folder key with forward-slash separators; `.` for root.
+ */
+function folderKeyForFile(fileName: string, projectRoot: string): string {
+  const sourceRoot = path.join(projectRoot, "src");
+  const sourceRootWithSlash = withTrailingSeparator(sourceRoot);
+  const resolved = path.resolve(fileName);
+  const base = resolved.startsWith(sourceRootWithSlash) ? sourceRoot : projectRoot;
+  const relativeDirectory = path.relative(base, path.dirname(resolved));
+  return relativeDirectory.length === 0 ? "." : normalizePath(relativeDirectory);
+}
+
+/**
+ * Top-level folder segment for a folder key — the first path
+ * component, used by layer-direction and shared-kernel checks.
+ * @param folder Folder key from `folderKeyForFile`.
+ * @returns The first segment of `folder`, or `.` for the root folder.
+ */
+function topFolder(folder: string): string {
+  return folder.split("/")[0] ?? ".";
 }
 
 function countNonImportTopLevelStatements(sourceFile: ts.SourceFile): number {

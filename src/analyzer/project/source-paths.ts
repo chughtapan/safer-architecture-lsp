@@ -11,6 +11,26 @@ export const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"] as const;
 const OUTPUT_EXTENSIONS = [".js", ".jsx", ".mjs", ".cjs"] as const;
 
 /**
+ * List the absolute source files an import target could stand for, covering
+ * both the written name with each source extension substituted and the bare
+ * stem with each appended. Duplicates collapse and the order follows
+ * `SOURCE_EXTENSIONS`, so resolution settles on the same file every run.
+ * @param absolutePath Import target already resolved to an absolute path.
+ * @returns Distinct candidates, in the order resolution should try them.
+ */
+export function candidateFileNames(absolutePath: string): readonly string[] {
+  const extensionCandidates = SOURCE_EXTENSIONS.map((extension) =>
+    path.resolve(replaceKnownExtension(absolutePath, extension)),
+  );
+  const stripped = stripKnownExtension(absolutePath);
+  const strippedCandidates = SOURCE_EXTENSIONS.map((extension) =>
+    path.resolve(`${stripped}${extension}`),
+  );
+
+  return [...new Set([...extensionCandidates, ...strippedCandidates])];
+}
+
+/**
  * Drop a recognized source or emitted extension from a file name, leaving
  * an unrecognized suffix alone. `.d.ts` is matched ahead of `.ts` so the
  * whole declaration suffix comes off rather than half of it.
@@ -38,26 +58,6 @@ export function replaceKnownExtension(fileName: string, nextExtension: string): 
   return extension
     ? `${fileName.slice(0, -extension.length)}${nextExtension}`
     : `${fileName}${nextExtension}`;
-}
-
-/**
- * List the absolute source files an import target could stand for, covering
- * both the written name with each source extension substituted and the bare
- * stem with each appended. Duplicates collapse and the order follows
- * `SOURCE_EXTENSIONS`, so resolution settles on the same file every run.
- * @param absolutePath Import target already resolved to an absolute path.
- * @returns Distinct candidates, in the order resolution should try them.
- */
-export function candidateFileNames(absolutePath: string): readonly string[] {
-  const extensionCandidates = SOURCE_EXTENSIONS.map((extension) =>
-    path.resolve(replaceKnownExtension(absolutePath, extension)),
-  );
-  const stripped = stripKnownExtension(absolutePath);
-  const strippedCandidates = SOURCE_EXTENSIONS.map((extension) =>
-    path.resolve(`${stripped}${extension}`),
-  );
-
-  return [...new Set([...extensionCandidates, ...strippedCandidates])];
 }
 
 /**

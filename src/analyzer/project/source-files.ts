@@ -65,33 +65,6 @@ export function createProgram(
   return ts.createProgram(rootNames, compilerOptions, undefined, oldProgram);
 }
 
-/**
- * Neutralize inherited build and emit modes for the analysis program:
- * force `noEmit`, and disable composite, declaration, and incremental
- * modes. Lib diagnostics are skipped because analysis consumes checker
- * symbols but does not need to validate dependency declarations. These
- * are isolation safeguards; root-file scoping reduces cold cost, while
- * previous-program reuse speeds incremental rebuilds.
- * @param base Compiler options as parsed from the project's tsconfig.
- * @returns The same options with build and emit behaviour stripped out.
- */
-function analysisOptions(base: ts.CompilerOptions): ts.CompilerOptions {
-  const inherited = { ...base };
-  delete inherited.declarationMap;
-  delete inherited.sourceMap;
-  delete inherited.tsBuildInfoFile;
-
-  return {
-    ...inherited,
-    noEmit: true,
-    composite: false,
-    declaration: false,
-    incremental: false,
-    skipLibCheck: true,
-    skipDefaultLibCheck: true,
-  };
-}
-
 /** Why `createProgram` would return null, in user-actionable terms. */
 export interface ProgramHealth {
   readonly status: "ok" | "missing-tsconfig" | "invalid-tsconfig";
@@ -136,27 +109,6 @@ export function programHealth(options: ResolvedArchitectureOptions): ProgramHeal
     };
   }
   return { status: "ok", configPath, detail: "" };
-}
-
-/**
- * Pick out the project's own code from everything the program loaded,
- * dropping declaration files and dependencies pulled in transitively.
- * The result is sorted by path so diagnostics come out in the same order
- * whatever order the compiler happened to load files in.
- * @param program Program whose loaded files are filtered.
- * @param projectRoot Directory a file must sit under to count as the
- * project's own.
- * @returns The project's source files, ordered lexicographically by path.
- */
-export function projectSourceFiles(
-  program: ts.Program,
-  projectRoot: string,
-): readonly ts.SourceFile[] {
-  const root = withTrailingSeparator(path.resolve(projectRoot));
-  return program
-    .getSourceFiles()
-    .filter((sourceFile) => isProjectSourceFile(sourceFile, root))
-    .sort((left, right) => left.fileName.localeCompare(right.fileName));
 }
 
 /**
@@ -208,6 +160,54 @@ export function publicApiSourceFiles(
   const publicFiles = packageJsonPublicFiles(packageJson, options.projectRoot, byPath);
   if (publicFiles.size === 0) {addEntrypointPublicFiles(publicFiles, options.projectRoot, byPath);}
   return [...publicFiles];
+}
+
+/**
+ * Pick out the project's own code from everything the program loaded,
+ * dropping declaration files and dependencies pulled in transitively.
+ * The result is sorted by path so diagnostics come out in the same order
+ * whatever order the compiler happened to load files in.
+ * @param program Program whose loaded files are filtered.
+ * @param projectRoot Directory a file must sit under to count as the
+ * project's own.
+ * @returns The project's source files, ordered lexicographically by path.
+ */
+export function projectSourceFiles(
+  program: ts.Program,
+  projectRoot: string,
+): readonly ts.SourceFile[] {
+  const root = withTrailingSeparator(path.resolve(projectRoot));
+  return program
+    .getSourceFiles()
+    .filter((sourceFile) => isProjectSourceFile(sourceFile, root))
+    .sort((left, right) => left.fileName.localeCompare(right.fileName));
+}
+
+/**
+ * Neutralize inherited build and emit modes for the analysis program:
+ * force `noEmit`, and disable composite, declaration, and incremental
+ * modes. Lib diagnostics are skipped because analysis consumes checker
+ * symbols but does not need to validate dependency declarations. These
+ * are isolation safeguards; root-file scoping reduces cold cost, while
+ * previous-program reuse speeds incremental rebuilds.
+ * @param base Compiler options as parsed from the project's tsconfig.
+ * @returns The same options with build and emit behaviour stripped out.
+ */
+function analysisOptions(base: ts.CompilerOptions): ts.CompilerOptions {
+  const inherited = { ...base };
+  delete inherited.declarationMap;
+  delete inherited.sourceMap;
+  delete inherited.tsBuildInfoFile;
+
+  return {
+    ...inherited,
+    noEmit: true,
+    composite: false,
+    declaration: false,
+    incremental: false,
+    skipLibCheck: true,
+    skipDefaultLibCheck: true,
+  };
 }
 
 function packageJsonPublicFiles(

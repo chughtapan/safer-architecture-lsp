@@ -22,27 +22,6 @@ const FILE_HEAD_RANGE = {
 };
 
 /**
- * Convert one analyzer diagnostic to an LSP diagnostic. The
- * `codeDescription.href` field is the editor-visible "Learn more"
- * URL; it points at the rule's PRINCIPLES.md anchor.
- * @param finding Analyzer's architecture diagnostic.
- * @returns LSP diagnostic, pinned to the start of the file.
- */
-function toLspDiagnostic(finding: ArchitectureDiagnostic): Diagnostic {
-  return {
-    range: FILE_HEAD_RANGE,
-    severity:
-      finding.severity === "error"
-        ? DiagnosticSeverity.Error
-        : DiagnosticSeverity.Warning,
-    code: finding.ruleId,
-    codeDescription: ruleCodeDescription(finding.ruleId),
-    source: "safer-architecture",
-    message: finding.message,
-  };
-}
-
-/**
  * Group analyzer diagnostics by file URI. The LSP server publishes
  * one `publishDiagnostics` per URI, so findings are batched here.
  * Per-file URI conversion is memoized within the batch — architecture
@@ -70,4 +49,25 @@ export function groupByUri(
     bucket.push(toLspDiagnostic(finding));
   }
   return groups;
+}
+
+/**
+ * Convert one analyzer diagnostic to an LSP diagnostic. The
+ * `codeDescription.href` field is the editor-visible "Learn more"
+ * URL; it points at the rule's PRINCIPLES.md anchor.
+ * @param finding Analyzer's architecture diagnostic.
+ * @returns LSP diagnostic, pinned to the start of the file.
+ */
+function toLspDiagnostic(finding: ArchitectureDiagnostic): Diagnostic {
+  return {
+    range: FILE_HEAD_RANGE,
+    severity:
+      finding.severity === "error"
+        ? DiagnosticSeverity.Error
+        : DiagnosticSeverity.Warning,
+    code: finding.ruleId,
+    codeDescription: ruleCodeDescription(finding.ruleId),
+    source: "safer-architecture",
+    message: finding.message,
+  };
 }

@@ -126,21 +126,6 @@ function importDeclarationConsumers(
   return importClauseConsumers(statement.importClause, context);
 }
 
-function importTargetContext(
-  fromFile: string,
-  statement: ts.ImportDeclaration,
-  resolver: CachedModuleResolver,
-): ImportTargetContext | null {
-  if (!ts.isStringLiteral(statement.moduleSpecifier)) {return null;}
-  const targetFile = resolver.resolveLocal(fromFile, statement.moduleSpecifier.text);
-  if (targetFile === null) {return null;}
-  return {
-    fromFile: path.resolve(fromFile),
-    targetFile,
-    typeOnly: statement.importClause?.phaseModifier === ts.SyntaxKind.TypeKeyword,
-  };
-}
-
 function importClauseConsumers(
   importClause: ts.ImportClause,
   context: ImportTargetContext,
@@ -236,6 +221,21 @@ function addNamespaceImportBinding(
     ...context,
     localName: namespaceImport.name.text,
   });
+}
+
+function importTargetContext(
+  fromFile: string,
+  statement: ts.ImportDeclaration,
+  resolver: CachedModuleResolver,
+): ImportTargetContext | null {
+  if (!ts.isStringLiteral(statement.moduleSpecifier)) {return null;}
+  const targetFile = resolver.resolveLocal(fromFile, statement.moduleSpecifier.text);
+  if (targetFile === null) {return null;}
+  return {
+    fromFile: path.resolve(fromFile),
+    targetFile,
+    typeOnly: statement.importClause?.phaseModifier === ts.SyntaxKind.TypeKeyword,
+  };
 }
 
 function resolveNamespaceImportFromClause(

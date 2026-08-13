@@ -29,15 +29,6 @@ const CACHE_VERSION = 4;
 const CACHE_DIR_SEGMENTS = ["node_modules", ".cache", "safer-architecture-lsp"];
 const CACHE_FILE = "report.json";
 
-// Disk cache is best-effort. A malformed file, permission error, or
-// race against another lint must never block the linter; we fall back
-// to a fresh analyzer build. Callers bind the caught error and hand it
-// here, so the overload accepts it and the implementation drops it.
-function discardCacheError(captured: unknown): null;
-function discardCacheError(): null {
-  return null;
-}
-
 interface FileWatermark {
   readonly path: string;
   readonly hash: string;
@@ -52,10 +43,6 @@ interface PersistedReport {
   readonly diagnosticsByFile: Record<string, readonly ArchitectureDiagnostic[]>;
   readonly waivers: readonly ArchitectureWaiver[];
   readonly snapshot: ArchitectureAnalysisSnapshot;
-}
-
-function cacheFilePathFor(projectRoot: string): string {
-  return path.join(projectRoot, ...CACHE_DIR_SEGMENTS, CACHE_FILE);
 }
 
 /**
@@ -169,25 +156,6 @@ export function computeFileWatermark(
   return watermarks;
 }
 
-function enumerateProjectFiles(options: ResolvedArchitectureOptions): readonly string[] {
-  const configPath =
-    options.tsconfigPath ??
-    ts.findConfigFile(options.projectRoot, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json");
-  if (!configPath) {return [];}
-  const configFile = ts.readConfigFile(configPath, (fileName) => ts.sys.readFile(fileName));
-  const parsed = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    path.dirname(configPath),
-  );
-  if (parsed.errors.length > 0) {return [];}
-  const root = path.resolve(options.projectRoot);
-  return parsed.fileNames.filter((file) =>
-    path.resolve(file).startsWith(root + path.sep) &&
-    !file.includes(`${path.sep}node_modules${path.sep}`),
-  );
-}
-
 /**
  * Stable hash of resolved options. Used to invalidate the disk cache
  * when consumer config changes (different thresholds, different
@@ -216,4 +184,36 @@ export function watermarksMatch(
     if (before[i].path !== after[i].path || before[i].hash !== after[i].hash) {return false;}
   }
   return true;
+}
+
+function cacheFilePathFor(projectRoot: string): string {
+  return path.join(projectRoot, ...CACHE_DIR_SEGMENTS, CACHE_FILE);
+}
+
+function enumerateProjectFiles(options: ResolvedArchitectureOptions): readonly string[] {
+  const configPath =
+    options.tsconfigPath ??
+    ts.findConfigFile(options.projectRoot, (fileName) => ts.sys.fileExists(fileName), "tsconfig.json");
+  if (!configPath) {return [];}
+  const configFile = ts.readConfigFile(configPath, (fileName) => ts.sys.readFile(fileName));
+  const parsed = ts.parseJsonConfigFileContent(
+    configFile.config,
+    ts.sys,
+    path.dirname(configPath),
+  );
+  if (parsed.errors.length > 0) {return [];}
+  const root = path.resolve(options.projectRoot);
+  return parsed.fileNames.filter((file) =>
+    path.resolve(file).startsWith(root + path.sep) &&
+    !file.includes(`${path.sep}node_modules${path.sep}`),
+  );
+}
+
+// Disk cache is best-effort. A malformed file, permission error, or
+// race against another lint must never block the linter; we fall back
+// to a fresh analyzer build. Callers bind the caught error and hand it
+// here, so the overload accepts it and the implementation drops it.
+function discardCacheError(captured: unknown): null;
+function discardCacheError(): null {
+  return null;
 }

@@ -57,10 +57,6 @@ export function emptyPackageJson(): PackageJson {
   };
 }
 
-function isJsonObject(value: unknown): value is JsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function readString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -92,4 +88,8 @@ function readImportsMap(value: unknown): ReadonlyMap<string, readonly string[]> 
     if (leaves.length > 0) {entries.push([key, leaves]);}
   }
   return new Map(entries);
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -27,15 +27,14 @@ export function explicitFacadeModule(
 }
 
 /**
- * Decide whether a module is machine-written. Generated code is exempt
- * from shape rules because nobody edits it to satisfy them.
- * @param module Module under inspection.
- * @returns True when the path sits under a `generated` directory or
- * carries a `.generated` / `.gen` suffix.
+ * Narrow a graph lookup to a shipped module that is not part of the
+ * package's public API — the internals a boundary rule is allowed to
+ * reason about.
+ * @param module Result of a graph lookup, possibly a miss.
+ * @returns True when the module ships and is not a public entry point.
  */
-export function generatedModule(module: SourceModule): boolean {
-  return /(^|\/)(__generated__|generated)(\/|$)/.test(module.relativePath) ||
-    /\.(generated|gen)\.[cm]?[tj]sx?$/.test(module.relativePath);
+export function resolveImplementationModule(module?: SourceModule): module is SourceModule {
+  return resolveProductionModule(module) && !module.isPublic;
 }
 
 /**
@@ -51,28 +50,15 @@ export function resolveProductionModule(module?: SourceModule): module is Source
 }
 
 /**
- * Narrow a graph lookup to a shipped module that is not part of the
- * package's public API — the internals a boundary rule is allowed to
- * reason about.
- * @param module Result of a graph lookup, possibly a miss.
- * @returns True when the module ships and is not a public entry point.
+ * Decide whether a module is machine-written. Generated code is exempt
+ * from shape rules because nobody edits it to satisfy them.
+ * @param module Module under inspection.
+ * @returns True when the path sits under a `generated` directory or
+ * carries a `.generated` / `.gen` suffix.
  */
-export function resolveImplementationModule(module?: SourceModule): module is SourceModule {
-  return resolveProductionModule(module) && !module.isPublic;
-}
-
-/**
- * Collapse many sets into one. Used to count the distinct consumers of a
- * module once, rather than once per export they reach it through.
- * @param sets Sets to merge; an empty list yields an empty set.
- * @returns A new set holding every value from every input.
- */
-export function unionSets<T>(sets: ReadonlyArray<ReadonlySet<T>>): ReadonlySet<T> {
-  const union = new Set<T>();
-  for (const set of sets) {
-    for (const value of set) {union.add(value);}
-  }
-  return union;
+export function generatedModule(module: SourceModule): boolean {
+  return /(^|\/)(__generated__|generated)(\/|$)/.test(module.relativePath) ||
+    /\.(generated|gen)\.[cm]?[tj]sx?$/.test(module.relativePath);
 }
 
 /**
@@ -89,6 +75,20 @@ export function jaccardOverlap<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): 
   const union = unionSets([left, right]);
   if (union.size === 0) {return 0;}
   return setIntersectionSize(left, right) / union.size;
+}
+
+/**
+ * Collapse many sets into one. Used to count the distinct consumers of a
+ * module once, rather than once per export they reach it through.
+ * @param sets Sets to merge; an empty list yields an empty set.
+ * @returns A new set holding every value from every input.
+ */
+export function unionSets<T>(sets: ReadonlyArray<ReadonlySet<T>>): ReadonlySet<T> {
+  const union = new Set<T>();
+  for (const set of sets) {
+    for (const value of set) {union.add(value);}
+  }
+  return union;
 }
 
 function normalizedFacadeFile(file: string): string {

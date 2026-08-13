@@ -45,6 +45,33 @@ export interface ResolvedArchitectureOptions
   readonly tsconfigPath: string | null;
 }
 
+/**
+ * Decode the rule options an ESLint config supplies and resolve their paths
+ * against the project root. Throws `ArchitectureOptionsError` listing every
+ * offending field when the options fail schema or domain validation, so a
+ * misconfiguration surfaces as a message rather than as silent under-analysis.
+ * @param raw Options as written in the ESLint config; defaults fill the rest.
+ * @param overrideProjectRoot Root that wins over the configured one, for
+ * callers that already know which workspace is being analyzed.
+ * @returns Options with an absolute project root and a resolved or null
+ * tsconfig path.
+ */
+export function resolveArchitectureOptions(
+  raw: unknown = {},
+  overrideProjectRoot?: string,
+): ResolvedArchitectureOptions {
+  const parsed = decodeOrThrow(raw);
+  const projectRoot = path.resolve(overrideProjectRoot ?? parsed.projectRoot ?? process.cwd());
+
+  return {
+    ...parsed,
+    projectRoot,
+    tsconfigPath: parsed.tsconfigPath
+      ? path.resolve(projectRoot, parsed.tsconfigPath)
+      : null,
+  };
+}
+
 function decodeOrThrow(raw: unknown): ArchitectureOptions {
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     const cached = decodedCache.get(raw);
@@ -195,33 +222,6 @@ function domainConfigurationError(message: string): never {
     message: `Invalid safer-architecture options:\n  • ${message}`,
     issues: [{ path: ["domains"], message }],
   });
-}
-
-/**
- * Decode the rule options an ESLint config supplies and resolve their paths
- * against the project root. Throws `ArchitectureOptionsError` listing every
- * offending field when the options fail schema or domain validation, so a
- * misconfiguration surfaces as a message rather than as silent under-analysis.
- * @param raw Options as written in the ESLint config; defaults fill the rest.
- * @param overrideProjectRoot Root that wins over the configured one, for
- * callers that already know which workspace is being analyzed.
- * @returns Options with an absolute project root and a resolved or null
- * tsconfig path.
- */
-export function resolveArchitectureOptions(
-  raw: unknown = {},
-  overrideProjectRoot?: string,
-): ResolvedArchitectureOptions {
-  const parsed = decodeOrThrow(raw);
-  const projectRoot = path.resolve(overrideProjectRoot ?? parsed.projectRoot ?? process.cwd());
-
-  return {
-    ...parsed,
-    projectRoot,
-    tsconfigPath: parsed.tsconfigPath
-      ? path.resolve(projectRoot, parsed.tsconfigPath)
-      : null,
-  };
 }
 
 /**

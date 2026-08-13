@@ -136,15 +136,6 @@ export class WorkspaceCache {
   }
 }
 
-// The overload accepts the caught error so the call site can bind it; the
-// implementation drops it.
-function discardCacheWriteError(captured: unknown): void;
-function discardCacheWriteError(): void {
-  // Best-effort: a write failure (read-only filesystem, missing
-  // node_modules) must not break the lint. The in-memory cache still
-  // covers the rest of this process.
-}
-
 const workspaceCaches = new Map<string, WorkspaceCache>();
 
 /**
@@ -172,4 +163,13 @@ export function getOrCreateWorkspaceCache(projectRoot: string): WorkspaceCache {
  */
 export function clearWorkspaceCache(projectRoot: string): void {
   workspaceCaches.get(projectRoot)?.clear();
+}
+
+// The overload accepts the caught error so the call site can bind it; the
+// implementation drops it.
+function discardCacheWriteError(captured: unknown): void;
+function discardCacheWriteError(): void {
+  // Best-effort: a write failure (read-only filesystem, missing
+  // node_modules) must not break the lint. The in-memory cache still
+  // covers the rest of this process.
 }

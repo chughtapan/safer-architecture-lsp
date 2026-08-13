@@ -24,6 +24,20 @@ interface DfsFrame<NodeId extends string, Edge extends DirectedEdge<NodeId>> {
 }
 
 /**
+ * Return SCCs that contain a real cycle, including a singleton self-loop.
+ * @param graph Graph to search for cyclic components.
+ * @returns Components of two or more nodes, plus self-looping singletons.
+ */
+export function cyclicStronglyConnectedComponents<
+  NodeId extends string,
+  Edge extends DirectedEdge<NodeId>,
+>(graph: DirectedGraph<NodeId, Edge>): ReadonlyArray<readonly NodeId[]> {
+  return stronglyConnectedComponents(graph).filter((component) =>
+    component.length > 1 || graph.outgoing.get(component[0])?.some((edge) => edge.to === component[0])
+  );
+}
+
+/**
  * Return every SCC in deterministic node order, including acyclic singletons.
  * @param graph Graph to search; its canonical order fixes the result order.
  * @returns One entry per component, each sorted, the list itself sorted.
@@ -37,20 +51,6 @@ export function stronglyConnectedComponents<
     if (!state.indices.has(nodeId)) {connectComponents(state, nodeId);}
   }
   return state.components.sort(compareComponents);
-}
-
-/**
- * Return SCCs that contain a real cycle, including a singleton self-loop.
- * @param graph Graph to search for cyclic components.
- * @returns Components of two or more nodes, plus self-looping singletons.
- */
-export function cyclicStronglyConnectedComponents<
-  NodeId extends string,
-  Edge extends DirectedEdge<NodeId>,
->(graph: DirectedGraph<NodeId, Edge>): ReadonlyArray<readonly NodeId[]> {
-  return stronglyConnectedComponents(graph).filter((component) =>
-    component.length > 1 || graph.outgoing.get(component[0])?.some((edge) => edge.to === component[0])
-  );
 }
 
 /**

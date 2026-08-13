@@ -15,6 +15,31 @@ export interface BackendSpec {
 export class ConfigurationError extends Error {}
 
 /**
+ * Load and validate the config file. An unreadable file and unparsable JSON are
+ * reported the same way — as a `ConfigurationError` naming the path — so the
+ * CLI can exit with a usage code instead of a stack trace.
+ * @param configPath File to read; it is quoted back in every failure message.
+ * @returns One spec per configured backend, primary first.
+ */
+export function readBackendSpecs(configPath: string): BackendSpec[] {
+  let raw: string;
+  try {
+    raw = readFileSync(configPath, "utf8");
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new ConfigurationError(`cannot read ${configPath}: ${detail}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new ConfigurationError(`cannot read ${configPath}: ${detail}`);
+  }
+  return parseBackendSpecs(parsed);
+}
+
+/**
  * Validate decoded JSON into launch vectors. Unknown per-backend fields are
  * rejected rather than ignored, so a misspelled key fails loudly instead of
  * silently launching a backend without the option its author intended.
@@ -51,31 +76,6 @@ export function parseBackendSpecs(value: unknown): BackendSpec[] {
     }
     return { argv: [command, ...(args)] };
   });
-}
-
-/**
- * Load and validate the config file. An unreadable file and unparsable JSON are
- * reported the same way — as a `ConfigurationError` naming the path — so the
- * CLI can exit with a usage code instead of a stack trace.
- * @param configPath File to read; it is quoted back in every failure message.
- * @returns One spec per configured backend, primary first.
- */
-export function readBackendSpecs(configPath: string): BackendSpec[] {
-  let raw: string;
-  try {
-    raw = readFileSync(configPath, "utf8");
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new ConfigurationError(`cannot read ${configPath}: ${detail}`);
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new ConfigurationError(`cannot read ${configPath}: ${detail}`);
-  }
-  return parseBackendSpecs(parsed);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

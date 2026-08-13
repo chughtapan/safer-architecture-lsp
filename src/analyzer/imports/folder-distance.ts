@@ -31,13 +31,6 @@ export function distantFolderImportDiagnostics(
   );
 }
 
-function folderDistance(left: string, right: string): number {
-  const leftSegments = folderSegments(left);
-  const rightSegments = folderSegments(right);
-  const sharedPrefixLength = commonPrefixLength(leftSegments, rightSegments);
-  return leftSegments.length + rightSegments.length - (2 * sharedPrefixLength);
-}
-
 function distantFolderImportDiagnostic(
   graph: ProjectArchitectureGraph,
   options: ResolvedArchitectureOptions,
@@ -49,6 +42,13 @@ function distantFolderImportDiagnostic(
   const distance = folderDistance(pair.fromModule.folder, pair.toModule.folder);
   if (distance <= options.maxFolderImportDistance) {return [];}
   return [distantImportDiagnostic(pair.fromModule, pair.toModule, distance, options)];
+}
+
+function folderDistance(left: string, right: string): number {
+  const leftSegments = folderSegments(left);
+  const rightSegments = folderSegments(right);
+  const sharedPrefixLength = commonPrefixLength(leftSegments, rightSegments);
+  return leftSegments.length + rightSegments.length - (2 * sharedPrefixLength);
 }
 
 function ignoredModulePair(fromModule: SourceModule, toModule: SourceModule): boolean {

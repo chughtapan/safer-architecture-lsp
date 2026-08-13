@@ -58,6 +58,26 @@ export function folderChildren(
   return [...byFolder.values()].sort(compareFolderChildren);
 }
 
+/**
+ * First element of `values` after lexicographic sorting, or `null` if
+ * the set is empty. Used to produce stable, deterministic diagnostics.
+ * @param values Set of strings to sort.
+ * @returns Lexicographically smallest element, or `null` when empty.
+ */
+export function firstSorted(values: ReadonlySet<string>): string | null {
+  return [...values].sort(compareStrings)[0] ?? null;
+}
+
+/**
+ * Convert a folder key from the project graph (relative to `src/`, with
+ * the root encoded as `.`) into its display path under `src/`.
+ * @param folder Folder key as stored on `SourceModule.folder`.
+ * @returns Display path rooted at `src/`.
+ */
+export function sourceFolderPath(folder: string): string {
+  return folder === "." ? "src" : `src/${folder}`;
+}
+
 function addModuleChildren(
   byFolder: Map<string, MutableFolderChildren>,
   module: SourceModule,
@@ -137,27 +157,7 @@ function compareFolderChildren(
   return left.folder.localeCompare(right.folder);
 }
 
-/**
- * First element of `values` after lexicographic sorting, or `null` if
- * the set is empty. Used to produce stable, deterministic diagnostics.
- * @param values Set of strings to sort.
- * @returns Lexicographically smallest element, or `null` when empty.
- */
-export function firstSorted(values: ReadonlySet<string>): string | null {
-  return [...values].sort(compareStrings)[0] ?? null;
-}
-
 function compareStrings(left: string, right: string): number {
   if (left < right) {return -1;}
   return left > right ? 1 : 0;
-}
-
-/**
- * Convert a folder key from the project graph (relative to `src/`, with
- * the root encoded as `.`) into its display path under `src/`.
- * @param folder Folder key as stored on `SourceModule.folder`.
- * @returns Display path rooted at `src/`.
- */
-export function sourceFolderPath(folder: string): string {
-  return folder === "." ? "src" : `src/${folder}`;
 }
