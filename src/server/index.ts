@@ -16,6 +16,7 @@
  */
 
 import { Effect } from "effect";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- the bin reads its config before building the Effect runtime; adding @effect/platform as a runtime dependency for one read would weigh on every consumer.
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -193,6 +194,7 @@ function check(args: readonly string[]): void {
 }
 
 function main(): void {
+  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- argv is read once at the process boundary to pick a subcommand; @effect/cli would add a runtime dependency to parse two flags.
   const [command, ...rest] = process.argv.slice(2);
   switch (command) {
     case "serve":

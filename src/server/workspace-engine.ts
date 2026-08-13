@@ -92,6 +92,7 @@ export interface WorkspaceEngine {
 const acquireWatcher = (
   projectRoot: string,
 ): Effect.Effect<FSWatcher, never, Scope.Scope> =>
+  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- the Scope requirement is declared in this function's return type and satisfied by the caller (Effect.scoped in src/server/index.ts); wrapping locally would close the watcher immediately and shorten its lifetime to a single call.
   Effect.acquireRelease(
     Effect.async<FSWatcher>((resume) => {
       // chokidar 5.x dropped glob support: watch the project root

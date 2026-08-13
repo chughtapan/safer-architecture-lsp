@@ -6,6 +6,7 @@
 
 import { Either, Schema } from "effect";
 import { ArrayFormatter, type ParseError } from "effect/ParseResult";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- workspace discovery runs before any Effect runtime exists, so it cannot acquire a FileSystem service; adding @effect/platform as a runtime dependency for one manifest read would weigh on every consumer of this package.
 import fs from "node:fs";
 import path from "node:path";
 import { readPackageJson } from "../project/package-json.js";

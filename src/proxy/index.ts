@@ -88,6 +88,7 @@ function main(argv: string[]): Effect.Effect<number> {
 }
 
 Effect.runPromise(
+  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- argv is read once at the process boundary; @effect/cli would add a runtime dependency to read a single config path.
   main(process.argv).pipe(Effect.flatMap((code) => Effect.sync(() => { process.exit(code); }))),
 ).catch((error: unknown) => {
   log(error instanceof Error ? error.message : String(error));
