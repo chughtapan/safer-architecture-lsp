@@ -25,8 +25,13 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Test (builds first)
-        run: npm test
+      # Runs the full suite under c8, so the server, proxy, and CLI tests that
+      # spawn the built dist/ bins are counted; an in-process provider sees
+      # none of that. Global thresholds live in .c8rc.json and per-directory
+      # floors in scripts/coverage-gate.mjs; either one fails the job. This is
+      # a superset of `npm test`, which is why the suite runs once.
+      - name: Test + coverage (builds first)
+        run: npm run test:coverage
 
       - name: Lint
         run: npm run lint
