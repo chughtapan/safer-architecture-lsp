@@ -1,8 +1,8 @@
 /**
- * @file In-memory store of currently-open LSP documents. Tracks URI,
- * version, text, and the workspace folder each document belongs to.
- * Pure data plus Effect-wrapped accessors so the LSP handlers don't
- * leak imperative state outside this module.
+ * @file In-memory store of currently-open LSP documents. Tracks URI, version,
+ * text, and language id; it is workspace-agnostic, and lsp-server resolves which
+ * engine owns a URI. Pure data plus Effect-wrapped accessors so the LSP handlers
+ * don't leak imperative state outside this module.
  */
 
 import { Effect, Ref } from "effect";

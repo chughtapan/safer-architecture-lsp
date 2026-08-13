@@ -82,7 +82,7 @@ const layerDefinitionSchema = Schema.Struct({
     description: "Layer name (entrypoint, app, domain, adapters, shared, etc.).",
   }),
   folders: Schema.Array(nonEmptyString).annotations({
-    description: "Folder paths relative to the project root that belong to this layer. Longest-prefix match wins; ties resolve to the lower (earlier) layer index.",
+    description: "Folder paths relative to src that belong to this layer, matching the folder keys the analyzer derives. Longest-prefix match wins; ties resolve to the lower (earlier) layer index.",
   }),
   reason: nonEmptyString.annotations({
     description: "Why these folders form a layer. Documents the architectural intent.",
@@ -312,8 +312,9 @@ export type ArchitectureOptions = typeof architectureOptionsSchema.Type;
  * Check raw options against the schema without throwing, so the caller
  * decides how an invalid config is reported.
  * @param raw Options object handed over by the ESLint config.
- * @returns The decoded options on the right, or a parse error naming every
- * field that failed on the left.
+ * @returns The decoded options on the right, or a parse error on the left.
+ * Decoding uses the default `errors: "first"` mode, so the error names the
+ * first failing field rather than all of them.
  */
 export function decodeArchitectureOptions(raw: unknown) {
   return Schema.decodeUnknownEither(architectureOptionsSchema)(raw);

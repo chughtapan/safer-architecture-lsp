@@ -54,7 +54,7 @@ export function groupByUri(
 /**
  * Convert one analyzer diagnostic to an LSP diagnostic. The
  * `codeDescription.href` field is the editor-visible "Learn more"
- * URL; it points at the rule's PRINCIPLES.md anchor.
+ * URL; it points at the rule's heading in docs/rules.md.
  * @param finding Analyzer's architecture diagnostic.
  * @returns LSP diagnostic, pinned to the start of the file.
  */

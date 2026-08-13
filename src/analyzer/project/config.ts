@@ -47,9 +47,10 @@ export interface ResolvedArchitectureOptions
 
 /**
  * Decode the rule options an ESLint config supplies and resolve their paths
- * against the project root. Throws `ArchitectureOptionsError` listing every
- * offending field when the options fail schema or domain validation, so a
- * misconfiguration surfaces as a message rather than as silent under-analysis.
+ * against the project root. Throws `ArchitectureOptionsError` when the options
+ * fail schema or domain validation, so a misconfiguration surfaces as a message
+ * rather than as silent under-analysis. Decoding stops at the first offending
+ * field, so the message names one problem per run.
  * @param raw Options as written in the ESLint config; defaults fill the rest.
  * @param overrideProjectRoot Root that wins over the configured one, for
  * callers that already know which workspace is being analyzed.

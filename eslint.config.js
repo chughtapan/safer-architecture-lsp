@@ -50,6 +50,27 @@ export default [
     },
   },
   {
+    // The agent-code-guard preset is type-aware and scoped to .ts, so plain
+    // JavaScript in the repo would otherwise be visited and never checked.
+    // scripts/coverage-gate.mjs gates CI, so it gets an explicit floor.
+    files: ["**/*.mjs", "**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: "module",
+      globals: { process: "readonly", console: "readonly" },
+    },
+    rules: {
+      "no-unused-vars": "error",
+      "no-undef": "error",
+      "no-const-assign": "error",
+      "no-dupe-keys": "error",
+      "no-unreachable": "error",
+      "eqeqeq": ["error", "always"],
+      "prefer-const": "error",
+      "no-var": "error",
+    },
+  },
+  {
     // Vitest's config contract is a default export, so the rule that bans them
     // is scoped off here rather than reshaping application modules around a
     // tool convention.

@@ -1,10 +1,10 @@
 /**
  * @file Long-lived per-workspace engine that the LSP server consumes.
- * Effect-shaped: the file watcher and PubSub are acquired through a
- * `Scope` (callers wrap with `Effect.scoped` so the engine cannot leak
- * resources), and `lintPaths` returns an `Effect` so callers can
- * compose it with the rest of the LSP pipeline. Wraps the
- * `WorkspaceCache` (Phase 5b) without changing it.
+ * Effect-shaped: the file watcher is acquired through a `Scope` (callers wrap
+ * with `Effect.scoped` so the watcher cannot leak), and `lintPaths` returns an
+ * `Effect` so callers can compose it with the rest of the LSP pipeline. The
+ * invalidation PubSub is not scope-managed and is never shut down; it lives as
+ * long as the engine value. Wraps the `WorkspaceCache` (Phase 5b) unchanged.
  */
 
 import type ts from "typescript";
@@ -154,9 +154,9 @@ const buildLintPaths =
 
 /**
  * Acquire a workspace engine. The returned `Effect` requires a `Scope`
- * (callers compose with `Effect.scoped` or a `Layer.scoped`); closing
- * the scope releases the watcher and the PubSub, and clears this
- * workspace's cache. No manual `dispose()` to forget.
+ * (callers compose with `Effect.scoped` or a `Layer.scoped`); closing the scope
+ * closes the watcher and clears this workspace's cache. The invalidation PubSub
+ * is not released by the scope. No manual `dispose()` to forget.
  * @param options Resolved architecture options for this workspace.
  * @returns Effect producing the engine; depends on a Scope.
  */

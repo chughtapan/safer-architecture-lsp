@@ -45,6 +45,11 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # tsconfig.json excludes tests and vitest strips types without checking,
+      # so without this step a type error anywhere in tests/ lands green.
+      - name: Typecheck tests
+        run: npm run typecheck
+
       - name: Lint
         run: npm run lint
 
