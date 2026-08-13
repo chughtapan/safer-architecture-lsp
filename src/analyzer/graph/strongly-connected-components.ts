@@ -1,3 +1,9 @@
+/**
+ * @file Tarjan strongly-connected-component search. The traversal is iterative
+ * because project graphs reach tens of thousands of modules and a recursive
+ * implementation exhausts the JavaScript stack.
+ */
+
 import type { DirectedEdge, DirectedGraph } from "./directed-graph.js";
 
 interface TarjanState<NodeId extends string, Edge extends DirectedEdge<NodeId>> {
@@ -19,7 +25,8 @@ interface DfsFrame<NodeId extends string, Edge extends DirectedEdge<NodeId>> {
 
 /**
  * Return every SCC in deterministic node order, including acyclic singletons.
- * @param graph
+ * @param graph Graph to search; its canonical order fixes the result order.
+ * @returns One entry per component, each sorted, the list itself sorted.
  */
 export function stronglyConnectedComponents<
   NodeId extends string,
@@ -34,7 +41,8 @@ export function stronglyConnectedComponents<
 
 /**
  * Return SCCs that contain a real cycle, including a singleton self-loop.
- * @param graph
+ * @param graph Graph to search for cyclic components.
+ * @returns Components of two or more nodes, plus self-looping singletons.
  */
 export function cyclicStronglyConnectedComponents<
   NodeId extends string,
@@ -48,8 +56,10 @@ export function cyclicStronglyConnectedComponents<
 /**
  * Select one stable cycle from an SCC. The lexicographically smallest
  * node is the root and sorted DFS edge order determines the returned path.
- * @param graph
- * @param component
+ * @param graph Graph the component belongs to, supplying its outgoing edges.
+ * @param component Nodes of one strongly connected component.
+ * @returns The cycle as a closed path, first node repeated last; empty when
+ * the component has no cycle.
  */
 export function canonicalCyclePath<
   NodeId extends string,
@@ -102,8 +112,8 @@ function createTarjanState<
 
 /**
  * Iterative Tarjan traversal so large project graphs cannot exhaust the JS stack.
- * @param state
- * @param start
+ * @param state Mutable search state accumulating indices, lowlinks, components.
+ * @param start Node to begin this traversal from.
  */
 function connectComponents<
   NodeId extends string,
@@ -157,7 +167,7 @@ function frameFor<NodeId extends string, Edge extends DirectedEdge<NodeId>>(
 function updateLowlink<
   NodeId extends string,
   Edge extends DirectedEdge<NodeId>,
->(state: TarjanState<NodeId, Edge>, nodeId: NodeId, candidate: number | undefined): void {
+>(state: TarjanState<NodeId, Edge>, nodeId: NodeId, candidate?: number): void {
   const current = state.lowlinks.get(nodeId);
   if (current === undefined || candidate === undefined) {return;}
   state.lowlinks.set(nodeId, Math.min(current, candidate));
