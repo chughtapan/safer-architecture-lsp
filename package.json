@@ -32,6 +32,7 @@
     "access": "public"
   },
   "scripts": {
+    "prepare": "husky || true",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "build": "npm run clean && tsc -p tsconfig.json",
     "prepack": "npm run clean && tsc -p tsconfig.json",
@@ -53,6 +54,7 @@
     "c8": "^12.0.0",
     "eslint": "^9.39.5",
     "eslint-plugin-agent-code-guard": "^0.0.21",
+    "husky": "^9.1.7",
     "vitest": "^3.2.6"
   },
   "engines": {

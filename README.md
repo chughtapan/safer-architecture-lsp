@@ -230,14 +230,12 @@ npm run lint    # eslint (agent-code-guard policy) + knip
 node dist/server/index.js check .   # the dogfood gate CI enforces
 
 Coverage runs pre-push, not in CI: c8 slows the process-spawning suites enough
-to push the slowest property test past vitest's timeout on CI hardware. Install
-the hook once with
+to push the slowest property test past vitest's timeout on CI hardware. `npm
+install` wires the hook up through husky, so there is nothing to install by
+hand. Bypass it with `SKIP_COVERAGE=1 git push`.
 
-```bash
-ln -sf ../../scripts/pre-push.sh "$(git rev-parse --git-path hooks/pre-push.local)"
-```
-
-and bypass it with `SKIP_COVERAGE=1 git push`.
+husky takes over `core.hooksPath`, so anything already in `.git/hooks/pre-push`
+would stop running; `.husky/pre-push` chains it explicitly.
 ```
 
 Publishing: push a `vX.Y.Z` tag matching `package.json` — the publish

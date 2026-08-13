@@ -2,7 +2,7 @@
 # Local pre-push gate. CI runs the uninstrumented suite; coverage lives here
 # because c8 slows the process-spawning suites by roughly an order of magnitude,
 # which pushes the slowest property test past vitest's 30s timeout on CI runners.
-# Install:  ln -sf ../../scripts/pre-push.sh "$(git rev-parse --git-path hooks/pre-push.local)"
+# Invoked by .husky/pre-push, which npm install wires up via the prepare script.
 # Bypass:   SKIP_COVERAGE=1 git push
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"

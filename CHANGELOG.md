@@ -19,7 +19,11 @@
   entry that re-exports only the analyzer.
 - Add property cases where tests previously asserted a single example: 77
   named tests to 87, none removed. Coverage rises to 78.27% lines.
-- Move the coverage gate from CI to a pre-push hook (`scripts/pre-push.sh`).
+- Move the coverage gate from CI to a husky pre-push hook (`.husky/pre-push`,
+  running `scripts/pre-push.sh`), so it installs with `npm install` rather than
+  by hand. The hook chains `.git/hooks/pre-push` explicitly, because husky takes
+  over `core.hooksPath` and would otherwise silently disable a hook already
+  installed there.
   c8 instrumentation slows the process-spawning suites by roughly an order of
   magnitude, which pushed the slowest property test past vitest's 30s timeout
   on CI hardware. CI runs the uninstrumented suite, the test typecheck, lint,
