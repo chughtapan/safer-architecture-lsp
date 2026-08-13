@@ -5,6 +5,7 @@
  * tsconfig that includes them, and root config files via the default project.
  */
 
+import globals from "globals";
 import { plugin as guard } from "eslint-plugin-agent-code-guard";
 
 const recommended = guard.configs.recommended;
@@ -57,7 +58,9 @@ export default [
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "module",
-      globals: { process: "readonly", console: "readonly" },
+      // The full Node global set, not a hand-picked pair: no-undef is an error
+      // here, so a missing global fails lint on correct code.
+      globals: globals.node,
     },
     rules: {
       "no-unused-vars": "error",

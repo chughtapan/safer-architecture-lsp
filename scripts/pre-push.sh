@@ -10,5 +10,9 @@ if [ "${SKIP_COVERAGE:-0}" = "1" ]; then
   echo "pre-push: SKIP_COVERAGE=1, skipping the coverage gate"
   exit 0
 fi
+# The build config excludes tests, so only this catches a type error in tests/.
+# It costs about five seconds; without it a test type error reaches CI.
+echo "pre-push: typechecking tests"
+npm run typecheck
 echo "pre-push: running the coverage gate (SKIP_COVERAGE=1 to bypass)"
 npm run test:coverage

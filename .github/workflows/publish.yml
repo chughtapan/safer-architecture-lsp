@@ -39,6 +39,9 @@ jobs:
         run: npm run build
       - name: Test
         run: npm test
+      - name: Typecheck tests
+        run: npm run typecheck
+
       - name: Lint
         run: npm run lint
       - name: Self check
