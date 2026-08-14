@@ -14,7 +14,12 @@ jobs:
     name: Build + test + lint
     runs-on: ubuntu-latest
     steps:
+      # Full history, not the default depth-1 fetch: the whitespace check below
+      # diffs against origin/main, and a shallow clone has neither that ref nor
+      # a common ancestor for the three-dot range to resolve.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
