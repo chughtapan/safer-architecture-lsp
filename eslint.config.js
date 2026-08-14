@@ -80,4 +80,11 @@ export default [
     rules: { "import-x/no-default-export": "off" },
     files: ["vitest.config.ts", "eslint.config.js"],
   },
+  {
+    // Trailing whitespace is otherwise unenforced: the preset does not flag it,
+    // and `git diff --check` compares the working tree to the index, so it goes
+    // blind the moment a change is staged.
+    files: ["**/*.ts", "**/*.mjs", "**/*.js"],
+    rules: { "no-trailing-spaces": "error" },
+  },
 ];
