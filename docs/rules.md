@@ -39,6 +39,34 @@ The retired two-line `@agent-code-guard/architecture-exception` marker is
 never honored; leaving one in place is itself a parse error, so a stale
 suppression fails loudly instead of silently lapsing.
 
+## Disabling a rule
+
+Turn one rule off for the whole project with a `disabledRules` entry in
+`safer-architecture.config.json`. Each entry names a rule id from the
+index below and carries a mandatory `reason`:
+
+```json
+{
+  "disabledRules": [
+    { "rule": "no-large-folder", "reason": "generated clients live in one flat folder by design." }
+  ]
+}
+```
+
+No finding of a listed rule is reported for that project, by `check` or
+in the editor. Use it when a rule does not fit the project at all; when
+the rule fits and one file is a deliberate exception, suppress it in
+that file instead. The default is `[]`.
+
+An unknown rule id is a configuration error, like any other invalid
+option. The two health rules, `architecture-directive-parse-error` and
+`architecture-analysis-unavailable`, cannot be listed, because they
+report that the analysis itself is incomplete.
+`no-workspace-package-cycle` is reported for the workspace as a whole
+rather than by any one project's analysis, so listing it has no effect.
+Disabled rules are read from the config file; `check --waivers` and the
+JSON report's `waivers` list suppression comments only.
+
 ## Index
 
 | Rule id | Category | Default trigger | Controlling options |
@@ -47,7 +75,7 @@ suppression fails loudly instead of silently lapsing.
 | [no-internal-subpath-export](#no-internal-subpath-export) | Package exports | >5 public subpaths, or any wildcard export | `maxSubpathExports`, `maxWildcardExports`, `forbiddenSubpathSegments`, `allowedPublicSubpaths` |
 | [no-public-vendor-type-leak](#no-public-vendor-type-leak) | Type boundaries | public API re-exports or returns a non-allowed external package's types | `publicTypePackages`, `packageRuntime` |
 | [no-export-star-boundary](#no-export-star-boundary) | Public surface | a public or `index` module uses `export *` | Not configurable |
-| [no-folder-cycle](#no-folder-cycle) | Folder graph | production folders form an import cycle | Not configurable |
+| [no-folder-cycle](#no-folder-cycle) | Folder graph | production folders form an import cycle | `compositionRoots` |
 | [no-module-cycle](#no-module-cycle) | Module graph | production modules form an import cycle, including self-imports | Not configurable |
 | [no-workspace-package-cycle](#no-workspace-package-cycle) | Workspace graph | listed packages form a runtime/peer dependency cycle | `safer-architecture.workspace.json` |
 | [require-domain-ownership](#require-domain-ownership) | Domains | production code is outside every domain/composition root | `domains`, `domainOwnership`, `compositionRoots` |
@@ -61,7 +89,7 @@ suppression fails loudly instead of silently lapsing.
 | [no-public-test-helper-leak](#no-public-test-helper-leak) | Package exports | public API exposes a test-only path or module | `allowedTestPublicSubpaths` |
 | [no-implementation-file-public-entry](#no-implementation-file-public-entry) | Package exports | inert until `implementationPathSegments` is set | `implementationPathSegments`, `allowedPublicSubpaths` |
 | [no-public-infra-type-leak](#no-public-infra-type-leak) | Type boundaries | inert until `infrastructureTypePackages` is set | `infrastructureTypePackages` |
-| [no-package-mesh](#no-package-mesh) | Folder graph | ≥6 production folders with edge density >0.35 or any cycle group | `minPackageMeshFolders`, `maxFolderEdgeDensity`, `maxFolderCycles` |
+| [no-package-mesh](#no-package-mesh) | Folder graph | ≥6 production folders with edge density >0.35 or any cycle group | `minPackageMeshFolders`, `maxFolderEdgeDensity`, `maxFolderCycles`, `compositionRoots` |
 | [no-large-folder](#no-large-folder) | Folder shape | >10 production children (or >20 incl. tests, or >20 unpaired tests) | `maxFolderChildren`, `maxFolderChildrenIncludingTests`, `maxUnpairedTestChildren`, `folderChildCountOverrides` |
 | [folder-readme-required](#folder-readme-required) | Folder shape | ≥4 semantic children and no `README.md` | `minFolderReadmeChildren`, `folderReadmeFileNames` |
 | [no-distant-folder-import](#no-distant-folder-import) | Layering | an import spans >4 folder hops | `maxFolderImportDistance` |
@@ -196,7 +224,11 @@ boundary states exactly what it promises.
 
 **Flags.** A dependency cycle among production folders. The pass
 collapses file imports to folder edges (over non-test files), then finds
-strongly connected components of size >1. One finding per cycle group.
+strongly connected components of size >1. A folder edge counts only if
+at least one file behind it is not a composition root: an entry file or
+process bootstrap listed in `compositionRoots` imports from every folder
+by design, so an edge it alone creates is wiring, not a dependency
+between layers. One finding per cycle group.
 Message: `Folder dependency cycle: a <-> b <-> c. Folders should expose
 a stable direction of knowledge; cycles make every folder in the
 component part of the same abstraction.` Severity `warn`.
@@ -205,8 +237,11 @@ component part of the same abstraction.` Severity `warn`.
 boundary; a cycle means the folders are really one tangled unit and a
 shared need should be escalated up, not routed in a loop.
 
-**Options.** Not configurable; suppress per-file if needed. (Structural
-— derived from the import graph.)
+**Options.** `compositionRoots` (default `[]`; each `{ path, reason }`
+names a project-relative file or directory whose imports do not form
+cycles). It is part of the domain configuration and requires at least
+one entry in `domains`. Nothing else is configurable; the rule is
+derived from the import graph.
 
 **Fix.** Break the loop by moving the shared piece into a lower folder
 both depend on, or invert one edge behind a facade/port so knowledge
@@ -278,7 +313,11 @@ root. Severity `error`.
 internal files that import back through the root. One finding for the
 whole project. Message: `Root files and internal files depend on each
 other. The public/root layer should hide internal decisions; internal
-code should not import back through it.` Severity `error`.
+code should not import back through it.` Severity `error`. Unlike
+[no-folder-cycle](#no-folder-cycle), this rule reads every production
+import, including those made by `compositionRoots` files: the root entry
+is usually a composition root, and internal code importing back through
+it is exactly what the rule reports.
 
 **Why.** The root/public layer exists to hide internal decisions; if
 internal code reaches back through it, the concealment is a fiction and
@@ -454,7 +493,10 @@ adapter.
 the project has at least `minPackageMeshFolders` production folders, the
 pass fires if folder-edge **density** exceeds `maxFolderEdgeDensity` or
 the number of folder cycle groups exceeds `maxFolderCycles`. Density is
-distinct directed folder pairs over all possible ordered pairs. One
+distinct directed folder pairs over all possible ordered pairs, and
+counts every production folder edge. Cycle groups are counted the way
+[no-folder-cycle](#no-folder-cycle) finds them, so an edge that only
+`compositionRoots` files create does not form one. One
 finding for the project. Message: `Package folder graph has N production
 folders, E production folder edges, C cycle groups, and density D. This
 is a mesh, not a layered package shape.` Severity `warn`.
@@ -464,7 +506,8 @@ direction to escalate along; the package has become one large
 implicit unit.
 
 **Options.** `minPackageMeshFolders` (default `6`), `maxFolderEdgeDensity`
-(default `0.35`), `maxFolderCycles` (default `0`).
+(default `0.35`), `maxFolderCycles` (default `0`), `compositionRoots`
+(default `[]`).
 
 **Fix.** Introduce layering or a shared kernel so dependencies flow one
 way. Reduce cross-folder edges by having folders meet through facades

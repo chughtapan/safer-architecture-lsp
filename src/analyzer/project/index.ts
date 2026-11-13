@@ -10,6 +10,7 @@
  * graph types that carry modules and folder edges between passes.
  */
 export {
+  compositionRootModule,
   explicitFacadeModule,
   type ExportConsumer,
   exportedDeclarationName,
