@@ -1,6 +1,7 @@
 /**
- * @file Folder-cycle detection and its two diagnostics. Cycles are found once
- * as strongly connected components and then read twice: any cycle at all is a
+ * @file Folder-cycle detection and its two diagnostics. Cycles are the
+ * strongly connected components of a folder edge list, and each diagnostic is
+ * handed the components of the edges it judges: any cycle at all is a
  * warning, and a cycle that specifically joins the root files to `internal`
  * is an error, because that is the one boundary the package promises to keep.
  */

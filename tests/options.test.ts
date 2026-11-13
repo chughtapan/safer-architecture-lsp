@@ -8,7 +8,11 @@ import { FastCheck as fc } from "effect";
 import path from "node:path";
 import { expect, it } from "vitest";
 import { createProgram } from "../src/analyzer/project/source-files.js";
-import { resolveArchitectureOptions } from "../src/index.js";
+import { ARCHITECTURE_ANALYSIS_UNAVAILABLE_RULE_ID } from "../src/analyzer/rule-ids.js";
+import {
+  ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID,
+  resolveArchitectureOptions,
+} from "../src/index.js";
 import { makeFixture } from "./support/fixtures.js";
 
 interface RejectedOptionCase {
@@ -20,8 +24,9 @@ interface RejectedOptionCase {
 
 /**
  * One entry per rejection branch the examples below pin individually: schema
- * shape, missing written reason, duplicate domain name, escaping root, and a
- * doubly-assigned ownership path.
+ * shape, missing written reason, duplicate domain name, escaping root, a
+ * doubly-assigned ownership path, and a disabled rule that is not a rule a
+ * project may switch off.
  */
 const REJECTED_OPTION_CASES: readonly RejectedOptionCase[] = [
   { input: { projectRoot: 42 }, message: /architecture options/i },
@@ -61,6 +66,14 @@ const REJECTED_OPTION_CASES: readonly RejectedOptionCase[] = [
       ],
     },
     message: /assigned more than once/,
+  },
+  {
+    input: { disabledRules: [{ rule: "not-a-real-rule", reason: "typo" }] },
+    message: /disabledRules\.0\.rule: unknown rule id "not-a-real-rule"/,
+  },
+  {
+    input: { disabledRules: [{ rule: ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID, reason: "noisy" }] },
+    message: /disabledRules\.0\.rule: unknown rule id/,
   },
 ];
 
@@ -115,6 +128,31 @@ it("rejects traversing and conflicting domain paths", () => {
       { path: "./src/legacy", domain: "billing", reason: "second" },
     ],
   })).toThrow("assigned more than once");
+});
+
+it("accepts a disabled rule with its reason and defaults to none", () => {
+  expect(resolveArchitectureOptions({}).disabledRules).toEqual([]);
+  const disabled = [{ rule: "no-folder-cycle", reason: "one flat folder by design" }] as const;
+  expect(resolveArchitectureOptions({ disabledRules: disabled }).disabledRules).toEqual(disabled);
+});
+
+it("rejects a disabled rule that is unknown, a pseudo-rule, or has no reason", () => {
+  expect(() => resolveArchitectureOptions({
+    disabledRules: [{ rule: "not-a-real-rule", reason: "typo" }],
+  })).toThrow('disabledRules.0.rule: unknown rule id "not-a-real-rule"');
+  // The two pseudo-rules report a run that never happened and a broken
+  // waiver comment; switching either off would hide that the report is wrong.
+  for (const rule of [
+    ARCHITECTURE_ANALYSIS_UNAVAILABLE_RULE_ID,
+    ARCHITECTURE_DIRECTIVE_PARSE_ERROR_RULE_ID,
+  ]) {
+    expect(() => resolveArchitectureOptions({
+      disabledRules: [{ rule, reason: "noisy" }],
+    })).toThrow("disabledRules.0.rule: unknown rule id");
+  }
+  expect(() => resolveArchitectureOptions({
+    disabledRules: [{ rule: "no-folder-cycle" }],
+  })).toThrow("disabledRules.0.reason");
 });
 
 it("removes inert emit paths from the analysis compiler options", () => {

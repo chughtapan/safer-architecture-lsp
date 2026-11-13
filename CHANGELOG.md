@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.2 (2026-11-13)
+
+- Stop counting imports made by a composition root as folder cycles.
+  `no-folder-cycle` and the cycle-group count of `no-package-mesh` count a
+  folder edge only when at least one production file behind it is outside
+  every `compositionRoots` path, so an entry file that sits beside modules
+  other folders import does not report a cycle. `no-root-internal-cycle` and
+  the density half of `no-package-mesh` read every production edge as before.
+- Add the `disabledRules` option: a list of `{ rule, reason }` entries whose
+  findings are not reported for the project. `rule` must be a diagnostic rule
+  id; an unknown id, or either of the pseudo-rules
+  `architecture-directive-parse-error` and `architecture-analysis-unavailable`,
+  is rejected as invalid configuration. The `--waivers` listing and the JSON
+  report's `waivers` still list suppression comments only.
+- Decide whether a module is a composition root in one predicate,
+  `compositionRootModule`, shared by the domain rules and the folder graph.
+
 ## 0.3.1 (2026-08-12)
 
 - Adopt Agent Code Guard 0.0.21's `recommended` ESLint policy as a blocking

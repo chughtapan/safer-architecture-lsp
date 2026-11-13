@@ -5,6 +5,7 @@
  * facade" is answered in one place rather than per rule.
  */
 
+import path from "node:path";
 import type { ResolvedArchitectureOptions } from "../api/index.js";
 import type { SourceModule } from "./graph-model.js";
 import { normalizePath } from "./source-facts.js";
@@ -24,6 +25,29 @@ export function explicitFacadeModule(
   return module.isIndex || options.facadeFiles.some((entry) =>
     normalizedFacadeFile(entry.file) === module.relativePath
   );
+}
+
+/**
+ * Decide whether a module is one of the places the project wires itself
+ * together: an entry file or process bootstrap named in the
+ * `compositionRoots` option. Such a file imports from every folder by
+ * design, so its imports say nothing about how the folders are layered.
+ * @param module Module under inspection.
+ * @param options Resolved options supplying the configured composition
+ * roots, each a project-relative file or directory.
+ * @returns True when the module is a listed file or sits under a listed
+ * directory.
+ */
+export function compositionRootModule(
+  module: SourceModule,
+  options: ResolvedArchitectureOptions,
+): boolean {
+  return options.compositionRoots.some((entry) => {
+    const root = path.posix.normalize(normalizePath(entry.path));
+    return root === "." ||
+      module.relativePath === root ||
+      module.relativePath.startsWith(`${root}/`);
+  });
 }
 
 /**

@@ -110,6 +110,10 @@ Edits hot-reload the affected project. The knobs you'll actually touch first:
   "facadeFiles": [
     { "file": "server/workspace-engine.ts", "reason": "engine contract" }
   ],
+  // Rules that do not apply to this project at all:
+  "disabledRules": [
+    { "rule": "no-large-folder", "reason": "generated clients live in one flat folder" }
+  ],
   // Public-surface budgets (defaults shown):
   "maxPublicExports": 20,
   "maxSubpathExports": 5
@@ -117,7 +121,10 @@ Edits hot-reload the affected project. The knobs you'll actually touch first:
 ```
 
 Every allowance entry requires a `reason` — writing it *is* the
-architectural decision. The full option list lives in
+architectural decision. `disabledRules` turns a rule off for the whole
+project; its `rule` must be a rule id from the reference, and the two
+health rules that report a broken analysis or a malformed suppression
+comment cannot be listed. The full option list lives in
 [docs/rules.md](./docs/rules.md), mapped rule-by-rule to the options
 that control it. This repository's own
 [safer-architecture.config.json](./safer-architecture.config.json) is a
@@ -153,6 +160,11 @@ ownership override, or a reason-carrying composition root. Cross-domain imports
 must target destination entrypoints; domain dependencies must be acyclic; and
 side-effect-only cross-domain imports are restricted to composition roots. See
 [CUPID enforcement](./docs/cupid.md).
+
+A composition root imports from every folder it wires, so its imports do not
+form folder cycles: `no-folder-cycle` and the cycle count of `no-package-mesh`
+ignore a folder edge that only composition roots create. `no-root-internal-cycle`
+still reads them, because the root entry is usually a composition root.
 
 ## Rules
 

@@ -17,6 +17,7 @@ export type {
 } from "./graph-model.js";
 /** Module role predicates and the set arithmetic the cohesion checks use. */
 export {
+  compositionRootModule,
   explicitFacadeModule,
   generatedModule,
   jaccardOverlap,

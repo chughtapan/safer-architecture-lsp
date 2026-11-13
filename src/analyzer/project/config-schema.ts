@@ -6,6 +6,7 @@
  */
 
 import { Schema } from "effect";
+import { ARCHITECTURE_DIAGNOSTIC_RULE_IDS } from "../rule-ids.js";
 
 const nonEmptyString = Schema.String.pipe(Schema.minLength(1));
 
@@ -63,6 +64,20 @@ const facadeFileAllowanceSchema = Schema.Struct({
   }),
 });
 type FacadeFileAllowance = typeof facadeFileAllowanceSchema.Type;
+
+const disabledRuleSchema = Schema.Struct({
+  rule: Schema.Literal(...ARCHITECTURE_DIAGNOSTIC_RULE_IDS).annotations({
+    description: "Rule id whose findings are not reported anywhere in this project.",
+    message: (issue) => ({
+      message: `unknown rule id ${JSON.stringify(issue.actual)}; expected one of ${ARCHITECTURE_DIAGNOSTIC_RULE_IDS.join(", ")}`,
+      override: true,
+    }),
+  }),
+  reason: nonEmptyString.annotations({
+    description: "Why this rule does not apply to the project. Documents the decision for reviewers.",
+  }),
+});
+type DisabledRule = typeof disabledRuleSchema.Type;
 
 const packageRuntimeSchema = Schema.Literal("browser", "node", "universal");
 
@@ -283,6 +298,10 @@ const architectureOptionsSchema = Schema.Struct({
   ),
   compositionRoots: Schema.Array(compositionRootSchema).pipe(
     Schema.optionalWith({ default: (): readonly CompositionRoot[] => [] }),
+  ),
+
+  disabledRules: Schema.Array(disabledRuleSchema).pipe(
+    Schema.optionalWith({ default: (): readonly DisabledRule[] => [] }),
   ),
 
   packageRuntime: packageRuntimeSchema.pipe(

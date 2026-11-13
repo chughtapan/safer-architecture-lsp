@@ -3,7 +3,9 @@
  * rather than any single edge: too many distinct folder-to-folder directions
  * for the folder count, or too many cycle groups, means the package is wired
  * as a mesh instead of layered. Test-like modules are filtered out first so
- * test wiring cannot make production structure look worse than it is.
+ * test wiring cannot make production structure look worse than it is, and the
+ * edges only a composition root is responsible for are set apart so cycles
+ * can be judged without them.
  */
 
 import type {
@@ -14,6 +16,7 @@ import type {
   FolderEdge,
   ProjectArchitectureGraph,
 } from "../project-graph/index.js";
+import { compositionRootModule } from "../../project/index.js";
 
 /**
  * The folder graph with test-only modules and test-only edges removed, which
@@ -22,20 +25,34 @@ import type {
 export interface ProductionFolderGraph {
   readonly folders: readonly string[];
   readonly edges: readonly FolderEdge[];
+  /**
+   * The subset of `edges` that at least one production file outside every
+   * composition root is responsible for. A composition root imports from
+   * every folder by design, so an edge it alone creates is wiring rather
+   * than a dependency between layers.
+   */
+  readonly layeringEdges: readonly FolderEdge[];
 }
 
 /**
  * Narrow the project graph to production folders and the edges at least one
  * production file is responsible for.
  * @param graph Full project graph, including test-like modules.
- * @returns The production-only folder set and edge list used by the mesh thresholds.
+ * @param options Names the composition roots whose imports are wiring.
+ * @returns The production-only folder set and edge lists used by the cycle
+ * checks and the mesh thresholds.
  */
 export function productionFolderGraph(
   graph: ProjectArchitectureGraph,
+  options: ResolvedArchitectureOptions,
 ): ProductionFolderGraph {
+  const edges = productionFolderEdges(graph);
   return {
     folders: productionFolderNames(graph),
-    edges: productionFolderEdges(graph),
+    edges,
+    layeringEdges: edges.filter((edge) =>
+      edge.files.some((file) => layeringFileEdge(graph, file, options))
+    ),
   };
 }
 
@@ -45,7 +62,8 @@ export function productionFolderGraph(
  * density is meaningless below the configured folder count.
  * @param graph Supplies the file this whole-graph finding is attributed to.
  * @param productionGraph Production folders and edges the density is computed over.
- * @param components Cyclic folder groups, counted against the cycle budget.
+ * @param components Cyclic folder groups among the layering edges, counted
+ * against the cycle budget.
  * @param options Carries the folder-count floor and the density and cycle budgets.
  * @returns A single warning quoting the measured shape, or nothing when both budgets hold.
  */
@@ -99,6 +117,15 @@ function productionFileEdge(
 ): boolean {
   const module = graph.modulesByFileName.get(fileName);
   return module !== undefined && !module.isTestLike;
+}
+
+function layeringFileEdge(
+  graph: ProjectArchitectureGraph,
+  fileName: string,
+  options: ResolvedArchitectureOptions,
+): boolean {
+  const module = graph.modulesByFileName.get(fileName);
+  return module !== undefined && !module.isTestLike && !compositionRootModule(module, options);
 }
 
 function productionFolderNames(graph: ProjectArchitectureGraph): readonly string[] {

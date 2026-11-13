@@ -59,9 +59,9 @@ interface DirectiveAnalysis {
  * Run every architecture analysis pass (package exports, inventory
  * barrels, public vendor type leaks, public surface, folder graph,
  * folder shape, module shape) against pre-resolved options and return
- * the merged report with directive-based suppressions applied. The
- * cache layer calls this with pre-resolved options so options are not
- * re-decoded on every analyzer hit.
+ * the merged report with the `disabledRules` option and directive-based
+ * suppressions applied. The cache layer calls this with pre-resolved
+ * options so options are not re-decoded on every analyzer hit.
  * @param options Pre-resolved architecture options (already
  * schema-decoded and path-resolved).
  * @param programProvider Lazy provider for the `ts.Program`. The
@@ -70,7 +70,8 @@ interface DirectiveAnalysis {
  * cached `ts.Program` so the analyzer does not parse every project
  * file on each diagnostic refresh.
  * @returns The combined architecture report with deduplicated
- * diagnostics, after directive suppressions are applied.
+ * diagnostics, after disabled rules are dropped and directive
+ * suppressions are applied.
  */
 export function analyzeResolvedArchitecture(
   options: ResolvedArchitectureOptions,
@@ -90,6 +91,7 @@ export function analyzeResolvedArchitecture(
   );
   const directiveAnalysis = analyzeDirectiveComments(sourceFiles);
 
+  const disabledRules = new Set<string>(options.disabledRules.map(({ rule }) => rule));
   const allDiagnostics = uniqueDiagnostics([
     ...checkPackageExports(packageJson, options, packageReportFile),
     ...checkInventoryBarrels(sourceFiles, options),
@@ -100,7 +102,7 @@ export function analyzeResolvedArchitecture(
     ...checkFolderGraph(graph, options),
     ...checkFolderShape(graph, options),
     ...checkModuleShape(graph, options),
-  ]);
+  ]).filter(({ ruleId }) => !disabledRules.has(ruleId));
 
   const diagnostics = [
     ...unavailableDiagnostics,

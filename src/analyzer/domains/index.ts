@@ -11,12 +11,16 @@ import type {
   DomainDefinition,
   ResolvedArchitectureOptions,
 } from "../project/api/index.js";
-import type { ProjectArchitectureGraph, SourceModule } from "../project/index.js";
 import { makeDirectedGraph } from "../graph/directed-graph.js";
 import {
   canonicalCyclePath,
   cyclicStronglyConnectedComponents,
 } from "../graph/strongly-connected-components.js";
+import {
+  compositionRootModule,
+  type ProjectArchitectureGraph,
+  type SourceModule,
+} from "../project/index.js";
 
 type ModuleOwner =
   | { readonly kind: "domain"; readonly domain: DomainDefinition }
@@ -87,9 +91,7 @@ export function domainArchitectureDiagnostics(
 }
 
 function ownerOf(module: SourceModule, options: ResolvedArchitectureOptions): ModuleOwner {
-  if (matchesAny(module.relativePath, options.compositionRoots.map(({ path }) => path))) {
-    return { kind: "composition" };
-  }
+  if (compositionRootModule(module, options)) {return { kind: "composition" };}
   const explicit = [...options.domainOwnership]
     .sort((left, right) => right.path.length - left.path.length)
     .find(({ path }) => pathContains(normalize(path), module.relativePath));
